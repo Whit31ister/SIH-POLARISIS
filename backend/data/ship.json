@@ -1,0 +1,10 @@
+{
+  "name": "POLARISIS",
+  "lat": -60.0,
+  "lon": -60.0,
+  "speed": 12,
+  "draft": 5.2,
+  "ice_capability": "ARC3",
+  "heading": 180,
+  "timestamp": 0
+}
