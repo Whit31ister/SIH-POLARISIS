@@ -13,6 +13,7 @@ import {
   fetchSimulationData,
   fetchRoute,
   fetchRiskDecision,
+  fetchNCPORData,
 } from './utils/api';
 
 import {
@@ -605,6 +606,9 @@ const App: React.FC = () => {
       previousRoute: [],
 
       riskDecision: null,
+
+      // Real-time NCPOR Antarctic station data
+      ncporStations: [],
     });
 
   const [isPlaying, setIsPlaying] =
@@ -626,29 +630,33 @@ const App: React.FC = () => {
     const loadInitialData =
       async () => {
         try {
-          const data =
-            await fetchSimulationData();
+            const data =
+              await fetchSimulationData();
 
-          // --------------------------------------------------
-          // Load simulation data
-          // --------------------------------------------------
+            // --------------------------------------------------
+            // Load simulation data
+            // --------------------------------------------------
 
-          setSimulation(
-            (prev) => ({
-              ...prev,
+            setSimulation(
+              (prev) => ({
+                ...prev,
 
-              vessel: {
-                ...prev.vessel,
-                ...data.ship,
-              },
+                vessel: {
+                  ...prev.vessel,
+                  ...data.ship,
+                },
 
-              icebergs:
-                data.icebergs || [],
+                icebergs:
+                  data.icebergs || [],
 
-              gridCells:
-                data.grid || [],
-            })
-          );
+                gridCells:
+                  data.grid || [],
+
+                // Real NCPOR observations
+                ncporStations:
+                  data.ncporStations || [],
+              })
+            );
 
           // --------------------------------------------------
           // Calculate initial route
@@ -716,6 +724,51 @@ const App: React.FC = () => {
 
     loadInitialData();
   }, []);
+
+
+// ==========================================================
+// Real-time NCPOR data refresh
+// ==========================================================
+
+useEffect(() => {
+  let mounted = true;
+
+  const refreshNCPOR = async () => {
+    try {
+      const data = await fetchNCPORData();
+
+      if (!mounted) {
+        return;
+      }
+
+      setSimulation((prev) => ({
+        ...prev,
+        ncporStations:
+          data.stations || [],
+      }));
+    } catch (error) {
+      console.error(
+        'Failed to refresh NCPOR data:',
+        error
+      );
+    }
+  };
+
+  // Fetch immediately when the application loads
+  refreshNCPOR();
+
+  // Refresh every 5 minutes
+  const interval = setInterval(
+    refreshNCPOR,
+    5 * 60 * 1000
+  );
+
+  return () => {
+    mounted = false;
+    clearInterval(interval);
+  };
+}, []);
+
 
   // ==========================================================
   // Simulation loop

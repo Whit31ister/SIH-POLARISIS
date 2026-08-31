@@ -76,15 +76,22 @@ export async function fetchRiskDecision(
 
 export async function fetchSimulationData(): Promise<any> {
   try {
-    const [shipRes, icebergsRes, gridRes] = await Promise.all([
+    const [
+      shipRes,
+      icebergsRes,
+      gridRes,
+      ncporRes,
+    ] = await Promise.all([
       api.get('/data/ship'),
       api.get('/data/icebergs'),
       api.get('/data/ice_grid'),
+      api.get<NCPORResponse>('/data/ncpor'),
     ]);
     return {
       ship: shipRes.data,
       icebergs: icebergsRes.data,
       grid: gridRes.data,
+      ncporStations: ncporRes.data.stations,
     };
   } catch (error) {
     console.error('Error fetching simulation data:', error);
