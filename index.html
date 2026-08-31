@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Polaris AI - Ice Trajectory Monitor</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="dashboard">
+        <!-- Sidebar: Control Panel & Live Logs -->
+        <aside class="sidebar">
+            <div class="header">
+                <h2>❄️ Polaris AI</h2>
+                <p>MoES / NCPOR Decision Support System</p>
+            </div>
+
+            <div class="control-group">
+                <h3>NCPOR Research Stations</h3>
+                <button id="btn-bharati" class="btn">Bharati Station (69°S, 76°E)</button>
+                <button id="btn-maitri" class="btn">Maitri Station (70°S, 11°E)</button>
+            </div>
+
+            <div class="control-group">
+                <h3>AI Forecasting Layers</h3>
+                <label><input type="checkbox" id="layer-iceberg" checked> Predicted Iceberg Trajectories</label><br>
+                <label><input type="checkbox" id="layer-seaice"> Sea-Ice Concentration Heatmap</label>
+            </div>
+
+            <div class="control-group">
+                <h3>Navigation Route Engine</h3>
+                <button id="btn-route" class="btn btn-accent">Calculate Optimal Route</button>
+            </div>
+
+            <div class="data-panel">
+                <h3>Voyage Telemetry (AI Output)</h3>
+                <div id="telemetry-box" class="telemetry-box">
+                    <p><strong>Route Status:</strong> <span id="route-status">Awaiting Calculation...</span></p>
+                    <p><strong>Safety Index:</strong> <span id="safety-index">--</span></p>
+                    <p><strong>Est. Fuel Savings:</strong> <span id="fuel-savings">--</span></p>
+                </div>
+                
+                <h3 style="margin-top:15px;">System Logs</h3>
+                <div id="alert-feed" class="alert-feed"></div>
+            </div>
+        </aside>
+
+        <!-- Main Viewport: Google Map -->
+        <main class="map-viewport">
+            <div id="map"></div>
+        </main>
+    </div>
+
+    <!-- Google Maps API -->
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASs7JXJM4MJrJrpwtHecoFduIdf76OMok&callback=initMap"></script>
+    <script src="script.js"></script>
+</body>
+</html>
