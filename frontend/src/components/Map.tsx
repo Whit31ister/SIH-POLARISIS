@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { SimulationState, RoutePoint } from '../types';
+
+import { SimulationState } from '../types';
 
 interface MapProps {
   simulation: SimulationState;
@@ -10,191 +11,337 @@ interface MapProps {
 const Map: React.FC<MapProps> = ({ simulation }) => {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
+  const mapLoaded = useRef(false);
+
+  // Keep the latest simulation available to the map load handler
+  const simulationRef = useRef<SimulationState>(simulation);
+
+  useEffect(() => {
+    simulationRef.current = simulation;
+  }, [simulation]);
+
+  // ============================================================
+  // Initialize MapLibre
+  // ============================================================
 
   useEffect(() => {
     if (!mapContainer.current) return;
 
-    // Initialize map centered on Drake Passage
-    map.current = new maplibregl.Map({
+    const mapInstance = new maplibregl.Map({
       container: mapContainer.current,
+
       style: 'https://demotiles.maplibre.org/style.json',
+
+      // Drake Passage
       center: [-59, -62],
       zoom: 5,
     });
 
+    map.current = mapInstance;
+
+    mapInstance.on('load', () => {
+      mapLoaded.current = true;
+
+      // Render whatever simulation state exists
+      // once the MapLibre style is completely ready.
+      updateMapLayers(mapInstance, simulationRef.current);
+    });
+
     return () => {
-      map.current?.remove();
+      mapLoaded.current = false;
+
+      mapInstance.remove();
+      map.current = null;
     };
   }, []);
 
-  useEffect(() => {
-    if (!map.current) return;
+  // ============================================================
+  // Update map whenever simulation changes
+  // ============================================================
 
-    // Add vessel marker
-    const vesselGeoJson: GeoJSON.FeatureCollection = {
+  useEffect(() => {
+    if (!map.current || !mapLoaded.current) return;
+
+    updateMapLayers(map.current, simulation);
+  }, [simulation]);
+
+  return (
+    <div
+      ref={mapContainer}
+      style={{
+        width: '100%',
+        height: '100%',
+      }}
+    />
+  );
+};
+
+// ============================================================
+// Update all simulation layers
+// ============================================================
+
+function updateMapLayers(
+  map: maplibregl.Map,
+  simulation: SimulationState
+) {
+  // Safety check
+  if (!map.isStyleLoaded()) {
+    return;
+  }
+
+  // ------------------------------------------------------------
+  // Vessel
+  // ------------------------------------------------------------
+
+  const vesselGeoJson: GeoJSON.FeatureCollection = {
+    type: 'FeatureCollection',
+
+    features: [
+      {
+        type: 'Feature',
+
+        geometry: {
+          type: 'Point',
+
+          coordinates: [
+            simulation.vessel.lon,
+            simulation.vessel.lat,
+          ],
+        },
+
+        properties: {
+          name: simulation.vessel.name,
+        },
+      },
+    ],
+  };
+
+  updateGeoJsonLayer(
+    map,
+    'vessel',
+    'circle',
+    vesselGeoJson,
+    {
+      'circle-radius': 8,
+      'circle-color': '#00ff00',
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#ffffff',
+    }
+  );
+
+  // ------------------------------------------------------------
+  // Icebergs
+  // ------------------------------------------------------------
+
+  const icebergGeoJson: GeoJSON.FeatureCollection = {
+    type: 'FeatureCollection',
+
+    features: simulation.icebergs.map((iceberg) => ({
+      type: 'Feature' as const,
+
+      geometry: {
+        type: 'Point' as const,
+
+        coordinates: [
+          iceberg.lon,
+          iceberg.lat,
+        ],
+      },
+
+      properties: {
+        id: iceberg.id,
+      },
+    })),
+  };
+
+  updateGeoJsonLayer(
+    map,
+    'icebergs',
+    'circle',
+    icebergGeoJson,
+    {
+      'circle-radius': 6,
+      'circle-color': '#ff6b6b',
+      'circle-stroke-width': 1,
+      'circle-stroke-color': '#ffffff',
+    }
+  );
+
+  // ------------------------------------------------------------
+  // Previous route
+  // ------------------------------------------------------------
+
+  if (simulation.previousRoute.length > 0) {
+    const previousLineGeoJson: GeoJSON.FeatureCollection = {
       type: 'FeatureCollection',
+
       features: [
         {
           type: 'Feature',
+
           geometry: {
-            type: 'Point',
-            coordinates: [simulation.vessel.lon, simulation.vessel.lat],
+            type: 'LineString',
+
+            coordinates: simulation.previousRoute.map(
+              (point) => [point.lon, point.lat]
+            ),
           },
-          properties: { name: simulation.vessel.name },
+
+          properties: {
+            route: 'previous',
+          },
         },
       ],
     };
 
-    // Remove existing source if it exists
-    if (map.current.getSource('vessel')) {
-      map.current.removeSource('vessel');
-    }
+    updateGeoJsonLayer(
+      map,
+      'previous-route',
+      'line',
+      previousLineGeoJson,
+      {
+        'line-color': '#ff0000',
+        'line-width': 3,
+        'line-opacity': 0.5,
+        'line-dasharray': [4, 2],
+      }
+    );
+  } else {
+    removeLayerAndSource(map, 'previous-route');
+  }
 
-    map.current.addSource('vessel', {
-      type: 'geojson',
-      data: vesselGeoJson,
-    });
+  // ------------------------------------------------------------
+  // Current route
+  // ------------------------------------------------------------
 
-    // Add vessel layer
-    if (!map.current.getLayer('vessel')) {
-      map.current.addLayer({
-        id: 'vessel',
-        type: 'circle',
-        source: 'vessel',
-        paint: {
-          'circle-radius': 8,
-          'circle-color': '#00ff00',
-          'circle-stroke-width': 2,
-          'circle-stroke-color': '#ffffff',
-        },
-      });
-    }
-  }, [simulation.vessel]);
-
-  useEffect(() => {
-    if (!map.current) return;
-
-    // Add icebergs
-    const icebergGeoJson: GeoJSON.FeatureCollection = {
+  if (simulation.currentRoute.length > 0) {
+    const currentLineGeoJson: GeoJSON.FeatureCollection = {
       type: 'FeatureCollection',
-      features: simulation.icebergs.map((iceberg) => ({
-        type: 'Feature' as const,
-        geometry: {
-          type: 'Point' as const,
-          coordinates: [iceberg.lon, iceberg.lat],
+
+      features: [
+        {
+          type: 'Feature',
+
+          geometry: {
+            type: 'LineString',
+
+            coordinates: simulation.currentRoute.map(
+              (point) => [point.lon, point.lat]
+            ),
+          },
+
+          properties: {
+            route: 'current',
+          },
         },
-        properties: { id: iceberg.id },
-      })),
+      ],
     };
 
-    if (map.current.getSource('icebergs')) {
-      map.current.removeSource('icebergs');
-    }
+    updateGeoJsonLayer(
+      map,
+      'current-route',
+      'line',
+      currentLineGeoJson,
+      {
+        'line-color': '#00ff00',
+        'line-width': 3,
+        'line-opacity': 0.8,
+      }
+    );
+  } else {
+    removeLayerAndSource(map, 'current-route');
+  }
+}
 
-    map.current.addSource('icebergs', {
-      type: 'geojson',
-      data: icebergGeoJson,
+// ============================================================
+// Generic GeoJSON layer updater
+// ============================================================
+
+function updateGeoJsonLayer(
+  map: maplibregl.Map,
+  id: string,
+  layerType: 'circle' | 'line',
+  data: GeoJSON.FeatureCollection,
+  paint: maplibregl.CircleLayerSpecification['paint'] |
+         maplibregl.LineLayerSpecification['paint']
+) {
+  if (!map.isStyleLoaded()) {
+    return;
+  }
+
+  const existingSource = map.getSource(id);
+
+  // ----------------------------------------------------------
+  // Source already exists → update its data
+  // ----------------------------------------------------------
+
+  if (existingSource) {
+    const source = existingSource as maplibregl.GeoJSONSource;
+
+    source.setData(data);
+    return;
+  }
+
+  // ----------------------------------------------------------
+  // Create source
+  // ----------------------------------------------------------
+
+  map.addSource(id, {
+    type: 'geojson',
+    data,
+  });
+
+  // ----------------------------------------------------------
+  // Create layer
+  // ----------------------------------------------------------
+
+  if (layerType === 'circle') {
+    map.addLayer({
+      id,
+
+      type: 'circle',
+
+      source: id,
+
+      paint:
+        paint as maplibregl.CircleLayerSpecification['paint'],
     });
+  } else {
+    map.addLayer({
+      id,
 
-    if (!map.current.getLayer('icebergs')) {
-      map.current.addLayer({
-        id: 'icebergs',
-        type: 'circle',
-        source: 'icebergs',
-        paint: {
-          'circle-radius': 6,
-          'circle-color': '#ff6b6b',
-          'circle-stroke-width': 1,
-          'circle-stroke-color': '#ffffff',
-        },
-      });
-    }
-  }, [simulation.icebergs]);
+      type: 'line',
 
-  useEffect(() => {
-    if (!map.current) return;
+      source: id,
 
-    // Add previous route (high risk - red)
-    if (simulation.previousRoute.length > 0) {
-      const previousLineGeoJson: GeoJSON.FeatureCollection = {
-        type: 'FeatureCollection',
-        features: [
-          {
-            type: 'Feature',
-            geometry: {
-              type: 'LineString',
-              coordinates: simulation.previousRoute.map((p) => [p.lon, p.lat]),
-            },
-            properties: { route: 'previous' },
-          },
-        ],
-      };
+      paint:
+        paint as maplibregl.LineLayerSpecification['paint'],
+    });
+  }
+}
 
-      if (map.current.getSource('previous-route')) {
-        map.current.removeSource('previous-route');
-      }
+// ============================================================
+// Safely remove layer + source
+// ============================================================
 
-      map.current.addSource('previous-route', {
-        type: 'geojson',
-        data: previousLineGeoJson,
-      });
+function removeLayerAndSource(
+  map: maplibregl.Map,
+  id: string
+) {
+  if (!map.isStyleLoaded()) {
+    return;
+  }
 
-      if (!map.current.getLayer('previous-route')) {
-        map.current.addLayer({
-          id: 'previous-route',
-          type: 'line',
-          source: 'previous-route',
-          paint: {
-            'line-color': '#ff0000',
-            'line-width': 3,
-            'line-opacity': 0.5,
-            'line-dasharray': [4, 2],
-          },
-        });
-      }
-    }
+  // IMPORTANT:
+  // Remove layer BEFORE source.
 
-    // Add current route (low risk - green)
-    if (simulation.currentRoute.length > 0) {
-      const currentLineGeoJson: GeoJSON.FeatureCollection = {
-        type: 'FeatureCollection',
-        features: [
-          {
-            type: 'Feature',
-            geometry: {
-              type: 'LineString',
-              coordinates: simulation.currentRoute.map((p) => [p.lon, p.lat]),
-            },
-            properties: { route: 'current' },
-          },
-        ],
-      };
+  if (map.getLayer(id)) {
+    map.removeLayer(id);
+  }
 
-      if (map.current.getSource('current-route')) {
-        map.current.removeSource('current-route');
-      }
-
-      map.current.addSource('current-route', {
-        type: 'geojson',
-        data: currentLineGeoJson,
-      });
-
-      if (!map.current.getLayer('current-route')) {
-        map.current.addLayer({
-          id: 'current-route',
-          type: 'line',
-          source: 'current-route',
-          paint: {
-            'line-color': '#00ff00',
-            'line-width': 3,
-            'line-opacity': 0.8,
-          },
-        });
-      }
-    }
-  }, [simulation.currentRoute, simulation.previousRoute]);
-
-  return <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />;
-};
+  if (map.getSource(id)) {
+    map.removeSource(id);
+  }
+}
 
 export default Map;

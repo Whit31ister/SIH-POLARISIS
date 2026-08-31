@@ -1,0 +1,5 @@
+{
+    "python-envs.defaultEnvManager": "ms-python.python:system",
+    "cmake.ignoreCMakeListsMissing": true,
+    "python.defaultInterpreterPath": "${workspaceFolder}/backend/venv/bin/python"
+}
