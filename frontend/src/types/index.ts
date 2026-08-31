@@ -5,6 +5,7 @@ export interface VesselState {
   draft: number;
   name: string;
   iceRating: string;
+  heading?: number;
 }
 
 export interface Iceberg {
@@ -14,6 +15,7 @@ export interface Iceberg {
   drift_lat: number;
   drift_lon: number;
   timestamp: number;
+  size_class?: "small" | "medium" | "large";
 }
 
 export interface GridCell {
@@ -38,12 +40,48 @@ export interface RiskDecision {
   recommended_route: RoutePoint[];
 }
 
+/* ============================================================
+   NCPOR LIVE STATION DATA
+   ============================================================ */
+
+export interface NCPORStation {
+  id: "maitri" | "bharati";
+
+  name: string;
+  region: "Antarctica";
+
+  lat: number;
+  lon: number;
+
+  temperature_c: number | null;
+  relative_humidity_pct: number | null;
+  pressure_mbar: number | null;
+  wind_speed_knots: number | null;
+  wind_speed_mps: number | null;
+
+  observation_date: string | null;
+  fetched_at: string;
+
+  source_url: string;
+
+  status: "LIVE" | "STALE" | "ERROR";
+  error?: string;
+}
+
 export interface SimulationState {
   time: number;
+
   vessel: VesselState;
+
   icebergs: Iceberg[];
+
   gridCells: GridCell[];
+
   currentRoute: RoutePoint[];
+
   previousRoute: RoutePoint[];
+
   riskDecision: RiskDecision | null;
+
+  ncporStations: NCPORStation[];
 }

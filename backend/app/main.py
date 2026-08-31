@@ -1,10 +1,18 @@
 import json
-import os
+from pathlib import Path
 from typing import List, Dict, Optional
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import logging
+import asyncio
+import re
+from datetime import datetime, timezone
+from html import unescape
+from urllib.request import Request, urlopen
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = BASE_DIR / "data"
 
 from app.astar import AStar
 from app.hazard_model import HazardPredictor, check_collision_risk
@@ -62,6 +70,226 @@ class DecisionResponse(BaseModel):
     recommended_route: List[Dict[str, float]]
 
 
+# ============================================================
+# NCPOR LIVE STATION DATA
+# ============================================================
+
+NCPOR_CACHE_SECONDS = 300  # 5 minutes
+
+NCPOR_STATIONS = {
+    "maitri": {
+        "id": "maitri",
+        "name": "Maitri",
+        "region": "Antarctica",
+        "lat": -70.764444,
+        "lon": 11.734167,
+        "url": "https://data.ncpor.res.in/maitri/live",
+        "source_url": "https://data.ncpor.res.in/maitri/live",
+    },
+    "bharati": {
+        "id": "bharati",
+        "name": "Bharati",
+        "region": "Antarctica",
+        "lat": -69.406833,
+        "lon": 76.195333,
+        "url": "https://data.ncpor.res.in/bharati/live",
+        "source_url": "https://data.ncpor.res.in/bharati/live",
+    },
+}
+
+ncpor_cache = {
+    "stations": [],
+    "fetched_at": None,
+}
+
+
+def _clean_ncpor_html(raw_html: str) -> str:
+    """
+    Convert NCPOR's live HTML into searchable plain text.
+    No external HTML parser dependency required.
+    """
+    text = re.sub(r"<script.*?</script>", " ", raw_html, flags=re.I | re.S)
+    text = re.sub(r"<style.*?</style>", " ", text, flags=re.I | re.S)
+    text = re.sub(r"<[^>]+>", " ", text)
+
+    text = unescape(text)
+    text = text.replace("\xa0", " ")
+
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _extract_float(pattern: str, text: str):
+    match = re.search(pattern, text, flags=re.I)
+
+    if not match:
+        return None
+
+    try:
+        return float(match.group(1))
+    except (TypeError, ValueError):
+        return None
+
+
+def _fetch_ncpor_station(config: dict) -> dict:
+    """
+    Fetch the latest publicly displayed NCPOR station observation.
+    """
+
+    try:
+        request = Request(
+            config["url"],
+            headers={
+                "User-Agent": (
+                    "POLARISIS/1.0 "
+                    "(maritime-navigation-research-demo)"
+                )
+            },
+        )
+
+        with urlopen(request, timeout=15) as response:
+            raw_html = response.read().decode(
+                "utf-8",
+                errors="replace",
+            )
+
+        text = _clean_ncpor_html(raw_html)
+
+        observation_date_match = re.search(
+            r"(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})\s*\|",
+            text,
+        )
+
+        observation_date = (
+            observation_date_match.group(1)
+            if observation_date_match
+            else None
+        )
+
+        temperature = _extract_float(
+            r"(?:Air\s+)?Temperature:\s*\|\s*"
+            r"([-+]?\d+(?:\.\d+)?)",
+            text,
+        )
+
+        humidity = _extract_float(
+            r"Relative\s+Humidity:\s*\|\s*"
+            r"([-+]?\d+(?:\.\d+)?)",
+            text,
+        )
+
+        pressure = _extract_float(
+            r"Air\s+Pressure:\s*\|\s*"
+            r"([-+]?\d+(?:\.\d+)?)",
+            text,
+        )
+
+        wind_knots = _extract_float(
+            r"Wind\s+Speed\s*\|\s*"
+            r"([-+]?\d+(?:\.\d+)?)\s*knots",
+            text,
+        )
+
+        wind_mps = (
+            wind_knots * 0.514444
+            if wind_knots is not None
+            else None
+        )
+
+        return {
+            **config,
+            "temperature_c": temperature,
+            "relative_humidity_pct": humidity,
+            "pressure_mbar": pressure,
+            "wind_speed_knots": wind_knots,
+            "wind_speed_mps": wind_mps,
+            "observation_date": observation_date,
+            "fetched_at": datetime.now(
+                timezone.utc
+            ).isoformat(),
+            "status": "LIVE",
+        }
+
+    except Exception as exc:
+        logger.warning(
+            "NCPOR %s fetch failed: %s",
+            config["name"],
+            exc,
+        )
+
+        return {
+            **config,
+            "temperature_c": None,
+            "relative_humidity_pct": None,
+            "pressure_mbar": None,
+            "wind_speed_knots": None,
+            "wind_speed_mps": None,
+            "observation_date": None,
+            "fetched_at": datetime.now(
+                timezone.utc
+            ).isoformat(),
+            "status": "ERROR",
+            "error": str(exc),
+        }
+
+
+async def refresh_ncpor_data(force: bool = False) -> list:
+    """
+    Fetch NCPOR station data concurrently.
+
+    Data is cached for 5 minutes unless force=True.
+    """
+
+    now = datetime.now(timezone.utc)
+
+    cached_at = ncpor_cache["fetched_at"]
+
+    if (
+        not force
+        and cached_at is not None
+        and (
+            now - cached_at
+        ).total_seconds() < NCPOR_CACHE_SECONDS
+    ):
+        return ncpor_cache["stations"]
+
+    stations = await asyncio.gather(
+        *[
+            asyncio.to_thread(
+                _fetch_ncpor_station,
+                config,
+            )
+            for config in NCPOR_STATIONS.values()
+        ]
+    )
+
+    ncpor_cache["stations"] = stations
+    ncpor_cache["fetched_at"] = now
+
+    logger.info(
+        "NCPOR station data refreshed: %d stations",
+        len(stations),
+    )
+
+    return stations
+
+@app.get("/data/ncpor")
+async def get_ncpor_data():
+    """
+    Return latest publicly available NCPOR
+    Antarctic station observations.
+    """
+
+    stations = await refresh_ncpor_data()
+
+    return {
+        "source": "NCPOR National Polar Data Center",
+        "updated_at": ncpor_cache["fetched_at"].isoformat()
+        if ncpor_cache["fetched_at"]
+        else None,
+        "stations": stations,
+    }
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize models and load data on startup"""
@@ -69,21 +297,22 @@ async def startup_event():
     
     logger.info("Starting up POLARISIS backend...")
     
-    # Load mock data
     try:
-        with open("backend/data/ice_grid.json", "r") as f:
+        with open(DATA_DIR / "ice_grid.json", "r") as f:
             grid_data = json.load(f)
-        
-        with open("backend/data/ship.json", "r") as f:
+
+        with open(DATA_DIR / "ship.json", "r") as f:
             ship_data = json.load(f)
-        
-        with open("backend/data/icebergs.json", "r") as f:
+
+        with open(DATA_DIR / "icebergs.json", "r") as f:
             icebergs_data = json.load(f)
-        
+
         logger.info("Mock data loaded successfully")
-    except FileNotFoundError as e:
+
+    except (FileNotFoundError, json.JSONDecodeError) as e:
         logger.error(f"Failed to load mock data: {e}")
-    
+        raise RuntimeError("POLARISIS mock data could not be loaded") from e
+
     # Initialize A* router
     astar_router = AStar(grid_data.get("features", []))
     logger.info("A* router initialized")

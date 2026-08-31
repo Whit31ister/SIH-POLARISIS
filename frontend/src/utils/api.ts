@@ -1,5 +1,8 @@
 import axios from 'axios';
-import { RoutePoint, RiskDecision, VesselState } from '../types';
+import {    RoutePoint,
+            RiskDecision,
+            VesselState,
+            NCPORStation, } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -9,6 +12,29 @@ export const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+export interface NCPORResponse {
+  source: string;
+  updated_at: string | null;
+  stations: NCPORStation[];
+}
+
+export async function fetchNCPORData(): Promise<NCPORResponse> {
+  try {
+    const response = await api.get<NCPORResponse>(
+      '/data/ncpor'
+    );
+
+    return response.data;
+  } catch (error) {
+    console.error(
+      'Error fetching NCPOR data:',
+      error
+    );
+
+    throw error;
+  }
+}
 
 export async function fetchRoute(
   start: RoutePoint,
