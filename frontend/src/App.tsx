@@ -1,773 +1,377 @@
 import React, {
-  useState,
-  useEffect,
   useCallback,
+  useEffect,
   useRef,
-} from 'react';
+  useState,
+} from "react";
 
-import Map from './components/Map';
-import Dashboard from './components/Dashboard';
-import ReplayController from './components/ReplayController';
+import Map from "./components/Map";
+import Dashboard from "./components/Dashboard";
+import ReplayController from "./components/ReplayController";
 
 import {
-  fetchSimulationData,
-  fetchRoute,
-  fetchRiskDecision,
   fetchNCPORData,
-} from './utils/api';
+  fetchRiskDecision,
+  fetchRoute,
+  fetchSimulationData,
+} from "./utils/api";
 
 import {
   SimulationState,
   RoutePoint,
-} from './types';
+} from "./types";
 
-import './App.css';
+import {
+  calculateBearing,
+  calculateRouteDistance,
+  moveAlongRoute,
+} from "./utils/navigation";
 
-// ============================================================
-// Simulation configuration
-// ============================================================
+import {
+  generateEnvironment,
+} from "./utils/environment";
 
-// Real-time interval between simulation updates.
+import {
+  calculateIcebergHazards,
+  calculateThreats,
+} from "./utils/hazards";
+
+import "./App.css";
+
+
 const SIM_TICK_MS = 250;
 
-// Amount of simulated time represented by one tick at 1x.
-// 300 seconds = 5 simulated minutes.
 const SIM_SECONDS_PER_TICK = 300;
 
-// Reroute evaluation interval.
-// 1800 seconds = 30 simulated minutes.
 const DECISION_INTERVAL_SECONDS = 1800;
 
-// Destination used for the demonstration voyage.
+const NCPOR_INITIAL_DELAY_MS = 5000;
+
+
 const DESTINATION: RoutePoint = {
   lat: -64.0,
   lon: -63.0,
 };
 
-// ============================================================
-// Geographic helpers
-// ============================================================
 
-const toRadians = (degrees: number): number =>
-  (degrees * Math.PI) / 180;
+const INITIAL_VESSEL = {
+  lat: -60.0,
+  lon: -60.0,
 
-const toDegrees = (radians: number): number =>
-  (radians * 180) / Math.PI;
+  speed: 12,
 
-/**
- * Haversine distance in kilometres.
- */
-const haversineDistance = (
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-): number => {
-  const R = 6371;
+  draft: 5.2,
 
-  const dLat = toRadians(lat2 - lat1);
-  const dLon = toRadians(lon2 - lon1);
+  name: "POLARISIS",
 
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRadians(lat1)) *
-      Math.cos(toRadians(lat2)) *
-      Math.sin(dLon / 2) ** 2;
+  iceRating: "ARC3",
 
-  return (
-    2 *
-    R *
-    Math.asin(Math.sqrt(a))
-  );
+  heading: 0,
 };
 
-/**
- * Initial bearing from point 1 to point 2.
- */
-const calculateBearing = (
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-): number => {
-  const phi1 = toRadians(lat1);
-  const phi2 = toRadians(lat2);
-  const lambda = toRadians(lon2 - lon1);
 
-  const y = Math.sin(lambda) * Math.cos(phi2);
-
-  const x =
-    Math.cos(phi1) * Math.sin(phi2) -
-    Math.sin(phi1) *
-      Math.cos(phi2) *
-      Math.cos(lambda);
-
-  return (
-    (toDegrees(Math.atan2(y, x)) + 360) %
-    360
-  );
-};
-
-/**
- * Clamp a value between min and max.
- */
-const clamp = (
-  value: number,
-  min: number,
-  max: number
-): number =>
-  Math.max(min, Math.min(max, value));
-
-// ============================================================
-// Ship movement
-// ============================================================
-
-/**
- * Move a vessel along its current route by a physical distance.
- *
- * Speed is in knots.
- *
- * 1 knot = 1 nautical mile/hour
- * 1 nautical mile = 1.852 km
- */
-const moveAlongRoute = (
-  vessel: SimulationState['vessel'],
-  route: RoutePoint[],
-  distanceKm: number
-): SimulationState['vessel'] => {
-  if (route.length < 2 || distanceKm <= 0) {
-    return vessel;
-  }
-
-  let bestSegment = 0;
-  let bestDistance = Infinity;
-  let bestRatio = 0;
-
-  // ----------------------------------------------------------
-  // Find the route segment closest to the current vessel.
-  // ----------------------------------------------------------
-
-  for (let i = 0; i < route.length - 1; i++) {
-    const a = route[i];
-    const b = route[i + 1];
-
-    const latScale = 111;
-    const lonScale =
-      111 *
-      Math.cos(
-        toRadians(vessel.lat)
-      );
-
-    const ax = a.lon * lonScale;
-    const ay = a.lat * latScale;
-
-    const bx = b.lon * lonScale;
-    const by = b.lat * latScale;
-
-    const px = vessel.lon * lonScale;
-    const py = vessel.lat * latScale;
-
-    const dx = bx - ax;
-    const dy = by - ay;
-
-    const lengthSquared =
-      dx * dx + dy * dy;
-
-    let ratio = 0;
-
-    if (lengthSquared > 0) {
-      ratio =
-        ((px - ax) * dx +
-          (py - ay) * dy) /
-        lengthSquared;
-    }
-
-    ratio = clamp(ratio, 0, 1);
-
-    const closestX =
-      ax + dx * ratio;
-
-    const closestY =
-      ay + dy * ratio;
-
-    const distance = Math.sqrt(
-      (px - closestX) ** 2 +
-        (py - closestY) ** 2
-    );
-
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      bestSegment = i;
-      bestRatio = ratio;
-    }
-  }
-
-  // ----------------------------------------------------------
-  // Advance through the route.
-  // ----------------------------------------------------------
-
-  let remaining = distanceKm;
-
-  let segmentIndex = bestSegment;
-
-  const firstPoint =
-    route[segmentIndex];
-
-  const secondPoint =
-    route[segmentIndex + 1];
-
-  const firstSegmentDistance =
-    haversineDistance(
-      vessel.lat,
-      vessel.lon,
-      secondPoint.lat,
-      secondPoint.lon
-    );
-
-  // Start from the actual vessel position.
-  if (
-    firstSegmentDistance > 0 &&
-    bestRatio < 1
-  ) {
-    if (remaining <= firstSegmentDistance) {
-      const ratio =
-        remaining /
-        firstSegmentDistance;
-
-      return {
-        ...vessel,
-
-        lat:
-          vessel.lat +
-          (secondPoint.lat -
-            vessel.lat) *
-            ratio,
-
-        lon:
-          vessel.lon +
-          (secondPoint.lon -
-            vessel.lon) *
-            ratio,
-      };
-    }
-
-    remaining -= firstSegmentDistance;
-  }
-
-  // ----------------------------------------------------------
-  // Continue through following segments.
-  // ----------------------------------------------------------
-
-  for (
-    let i = segmentIndex + 1;
-    i < route.length - 1;
-    i++
-  ) {
-    const current =
-      route[i];
-
-    const next =
-      route[i + 1];
-
-    const segmentDistance =
-      haversineDistance(
-        current.lat,
-        current.lon,
-        next.lat,
-        next.lon
-      );
-
-    if (
-      segmentDistance <= 0
-    ) {
-      continue;
-    }
-
-    if (
-      remaining <=
-      segmentDistance
-    ) {
-      const ratio =
-        remaining /
-        segmentDistance;
-
-      return {
-        ...vessel,
-
-        lat:
-          current.lat +
-          (next.lat -
-            current.lat) *
-            ratio,
-
-        lon:
-          current.lon +
-          (next.lon -
-            current.lon) *
-            ratio,
-      };
-    }
-
-    remaining -=
-      segmentDistance;
-  }
-
-  // Destination reached.
-  const destination =
-    route[route.length - 1];
-
-  return {
-    ...vessel,
-
-    lat: destination.lat,
-    lon: destination.lon,
-  };
-};
-
-// ============================================================
-// Environmental simulation
-// ============================================================
-
-/**
- * Deterministic environmental model.
- *
- * Instead of generating random weather every tick,
- * environmental conditions evolve smoothly with time
- * and geographic position.
- */
-const generateEnvironment = (
-  lat: number,
-  lon: number,
-  simulationTime: number
-) => {
-  const hours =
-    simulationTime / 3600;
-
-  // Further south = generally greater ice exposure.
-  const latitudeFactor = clamp(
-    (-lat - 55) / 30,
-    0,
-    1
+const INITIAL_ENVIRONMENT =
+  generateEnvironment(
+    INITIAL_VESSEL.lat,
+    INITIAL_VESSEL.lon,
+    0
   );
 
-  // Slowly evolving weather system.
-  const weatherCycle =
-    (Math.sin(
-      hours * 0.35 +
-        lon * 0.08
-    ) +
-      1) /
-    2;
 
-  const secondaryWeather =
-    (Math.sin(
-      hours * 0.17 -
-        lat * 0.11
-    ) +
-      1) /
-    2;
+const INITIAL_STATE:
+  SimulationState = {
 
-  // ----------------------------------------------------------
-  // Sea ice
-  // ----------------------------------------------------------
+  time: 0,
 
-  const seaIceConcentration =
-    clamp(
-      0.12 +
-        latitudeFactor * 0.58 +
-        weatherCycle * 0.18,
-      0,
-      1
-    );
+  vessel:
+    INITIAL_VESSEL,
 
-  const iceThickness =
-    clamp(
-      0.1 +
-        latitudeFactor * 1.5 +
-        weatherCycle * 0.35,
-      0.05,
-      2.5
-    );
+  icebergs: [],
 
-  // ----------------------------------------------------------
-  // Weather
-  // ----------------------------------------------------------
+  gridCells: [],
 
-  const windSpeed =
-    10 +
-    weatherCycle * 32 +
-    secondaryWeather * 10;
+  currentRoute: [],
 
-  const windDirection =
-    (
-      220 +
-      Math.sin(
-        hours * 0.15
-      ) *
-        60
-    ) % 360;
+  previousRoute: [],
 
-  const waveHeight =
-    clamp(
-      1.2 +
-        weatherCycle * 4.5 +
-        secondaryWeather * 1.2,
-      0.5,
-      7
-    );
+  riskDecision: null,
 
-  const wavePeriod =
-    5 +
-    weatherCycle * 5;
+  ncporStations: [],
 
-  const visibility =
-    clamp(
-      22 -
-        weatherCycle * 13 -
-        secondaryWeather * 4,
-      1,
-      25
-    );
+  environment:
+    INITIAL_ENVIRONMENT,
 
-  const pressure =
-    995 +
-    Math.sin(
-      hours * 0.12
-    ) *
-      22;
+  iceHazards: {
+    iceberg_count: 0,
 
-  // ----------------------------------------------------------
-  // Temperature
-  // ----------------------------------------------------------
+    nearest_iceberg_distance_km:
+      null,
 
-  const airTemperature =
-    -1 -
-    latitudeFactor * 11 -
-    weatherCycle * 3;
+    nearest_iceberg_id:
+      null,
 
-  const seaTemperature =
-    1.5 -
-    latitudeFactor * 3;
+    largest_iceberg_size:
+      null,
 
-  // ----------------------------------------------------------
-  // Ocean currents
-  // ----------------------------------------------------------
+    collision_risk: 0,
 
-  const currentSpeed =
-    0.25 +
-    secondaryWeather * 1.25;
+    cpa_minutes: null,
+  },
 
-  const currentDirection =
-    (
-      70 +
-      Math.sin(
-        hours * 0.13 +
-          lon * 0.03
-      ) *
-        55
-    ) % 360;
+  navigation: {
+    route_distance_km: 0,
 
-  return {
-    sea_ice_concentration:
-      seaIceConcentration,
+    remaining_distance_km: 0,
 
-    ice_thickness:
-      iceThickness,
+    distance_travelled_km: 0,
 
-    wind_speed:
-      windSpeed,
+    eta_minutes: 0,
 
-    wind_direction:
-      windDirection,
+    route_efficiency_pct: 100,
 
-    wave_height:
-      waveHeight,
+    risk_reduction_pct: null,
+  },
 
-    wave_period:
-      wavePeriod,
+  threats: {
+    ice_risk: 0,
 
-    visibility:
-      visibility,
+    iceberg_risk: 0,
 
-    pressure:
-      pressure,
+    weather_risk: 0,
 
-    air_temperature:
-      airTemperature,
+    wave_risk: 0,
 
-    sea_temperature:
-      seaTemperature,
+    visibility_risk: 0,
 
-    current_speed:
-      currentSpeed,
-
-    current_direction:
-      currentDirection,
-  };
+    overall_risk: 0,
+  },
 };
 
-// ============================================================
-// Threat analysis
-// ============================================================
-
-const calculateThreatVector = (
-  environment: ReturnType<
-    typeof generateEnvironment
-  >,
-  vessel: SimulationState['vessel'],
-  icebergRisk: number
-) => {
-  const iceCapabilityFactor =
-    vessel.iceRating === 'ARC3'
-      ? 0.7
-      : 1.0;
-
-  const iceRisk =
-    clamp(
-      environment.sea_ice_concentration *
-        iceCapabilityFactor,
-      0,
-      1
-    );
-
-  const weatherRisk =
-    clamp(
-      environment.wind_speed /
-        60,
-      0,
-      1
-    );
-
-  const waveRisk =
-    clamp(
-      environment.wave_height /
-        7,
-      0,
-      1
-    );
-
-  const visibilityRisk =
-    clamp(
-      1 -
-        environment.visibility /
-          20,
-      0,
-      1
-    );
-
-  const overallRisk =
-    iceRisk * 0.30 +
-    icebergRisk * 0.30 +
-    weatherRisk * 0.15 +
-    waveRisk * 0.10 +
-    visibilityRisk * 0.15;
-
-  return {
-    iceRisk,
-    icebergRisk,
-    weatherRisk,
-    waveRisk,
-    visibilityRisk,
-
-    overallRisk: clamp(
-      overallRisk,
-      0,
-      1
-    ),
-  };
-};
-
-// ============================================================
-// Application
-// ============================================================
 
 const App: React.FC = () => {
-  // ==========================================================
-  // Simulation state
-  // ==========================================================
 
-  const [simulation, setSimulation] =
-    useState<SimulationState>({
-      time: 0,
+  const [
+    simulation,
+    setSimulation,
+  ] = useState<SimulationState>(
+    INITIAL_STATE
+  );
 
-      vessel: {
-        lat: -60.0,
-        lon: -60.0,
-        speed: 12,
-        draft: 5.2,
-        name: 'POLARISIS',
-        iceRating: 'ARC3',
-      },
 
-      icebergs: [],
-      gridCells: [],
+  const [
+    isPlaying,
+    setIsPlaying,
+  ] = useState(false);
 
-      currentRoute: [],
-      previousRoute: [],
 
-      riskDecision: null,
+  const [
+    speed,
+    setSpeed,
+  ] = useState(1);
 
-      // Real-time NCPOR Antarctic station data
-      ncporStations: [],
-    });
 
-  const [isPlaying, setIsPlaying] =
-    useState(false);
-
-  const [speed, setSpeed] =
-    useState(1);
-
-  // Used to prevent repeated API calls
-  // during the same simulation interval.
   const lastDecisionBucket =
     useRef(-1);
 
+
+  const initialPosition =
+    useRef({
+      lat: INITIAL_VESSEL.lat,
+      lon: INITIAL_VESSEL.lon,
+    });
+
+
   // ==========================================================
-  // Load initial data
+  // Initial data
   // ==========================================================
 
   useEffect(() => {
-    const loadInitialData =
-      async () => {
-        try {
-            const data =
-              await fetchSimulationData();
 
-            // --------------------------------------------------
-            // Load simulation data
-            // --------------------------------------------------
+    let mounted = true;
 
-            setSimulation(
-              (prev) => ({
-                ...prev,
 
-                vessel: {
-                  ...prev.vessel,
-                  ...data.ship,
-                },
+    async function load() {
 
-                icebergs:
-                  data.icebergs || [],
+      try {
 
-                gridCells:
-                  data.grid || [],
+        const data =
+          await fetchSimulationData();
 
-                // Real NCPOR observations
-                ncporStations:
-                  data.ncporStations || [],
-              })
-            );
-
-          // --------------------------------------------------
-          // Calculate initial route
-          // --------------------------------------------------
-
-          if (
-            data.ship &&
-            data.grid
-          ) {
-            const vesselForRouting =
-              {
-                lat:
-                  data.ship.lat,
-
-                lon:
-                  data.ship.lon,
-
-                speed:
-                  data.ship.speed ??
-                  12,
-
-                draft:
-                  data.ship.draft ??
-                  5.2,
-
-                name:
-                  data.ship.name ??
-                  'POLARISIS',
-
-                iceRating:
-                  data.ship
-                    .iceRating ??
-                  'ARC3',
-              };
-
-            const route =
-              await fetchRoute(
-                {
-                  lat:
-                    data.ship.lat,
-                  lon:
-                    data.ship.lon,
-                },
-
-                DESTINATION,
-
-                vesselForRouting
-              );
-
-            setSimulation(
-              (prev) => ({
-                ...prev,
-                currentRoute:
-                  route,
-              })
-            );
-          }
-        } catch (error) {
-          console.error(
-            'Failed to load initial data:',
-            error
-          );
+        if (!mounted) {
+          return;
         }
-      };
 
-    loadInitialData();
+
+        const vessel = {
+          ...INITIAL_VESSEL,
+
+          lat:
+            data.ship?.lat ??
+            INITIAL_VESSEL.lat,
+
+          lon:
+            data.ship?.lon ??
+            INITIAL_VESSEL.lon,
+
+          speed:
+            data.ship?.speed ??
+            INITIAL_VESSEL.speed,
+
+          draft:
+            data.ship?.draft ??
+            INITIAL_VESSEL.draft,
+
+          name:
+            data.ship?.name ??
+            INITIAL_VESSEL.name,
+
+          iceRating:
+            data.ship?.iceRating ??
+            INITIAL_VESSEL.iceRating,
+
+          heading: 0,
+        };
+
+
+        initialPosition.current = {
+          lat: vessel.lat,
+          lon: vessel.lon,
+        };
+
+
+        setSimulation(prev => ({
+          ...prev,
+
+          vessel,
+
+          icebergs:
+            data.icebergs ?? [],
+
+          gridCells:
+            data.grid ?? [],
+        }));
+
+
+        const route =
+          await fetchRoute(
+            {
+              lat: vessel.lat,
+              lon: vessel.lon,
+            },
+
+            DESTINATION,
+
+            vessel
+          );
+
+
+        if (!mounted) {
+          return;
+        }
+
+
+        const distance =
+          calculateRouteDistance(
+            route
+          );
+
+
+        setSimulation(prev => ({
+          ...prev,
+
+          currentRoute:
+            route,
+
+          navigation: {
+            ...prev.navigation,
+
+            route_distance_km:
+              distance,
+
+            remaining_distance_km:
+              distance,
+          },
+        }));
+
+      } catch (error) {
+
+        console.error(
+          "Failed to load simulation:",
+          error
+        );
+      }
+    }
+
+
+    load();
+
+
+    return () => {
+      mounted = false;
+    };
+
   }, []);
 
 
-// ==========================================================
-// Real-time NCPOR data refresh
-// ==========================================================
+  // ==========================================================
+  // ONE delayed NCPOR check
+  // ==========================================================
 
-useEffect(() => {
-  let mounted = true;
+  useEffect(() => {
 
-  const refreshNCPOR = async () => {
-    try {
-      const data = await fetchNCPORData();
+    let mounted = true;
 
-      if (!mounted) {
-        return;
-      }
 
-      setSimulation((prev) => ({
-        ...prev,
-        ncporStations:
-          data.stations || [],
-      }));
-    } catch (error) {
-      console.error(
-        'Failed to refresh NCPOR data:',
-        error
+    const timer =
+      window.setTimeout(
+        async () => {
+
+          try {
+
+            const data =
+              await fetchNCPORData();
+
+            if (!mounted) {
+              return;
+            }
+
+
+            setSimulation(prev => ({
+              ...prev,
+
+              ncporStations:
+                data.stations ?? [],
+
+              environment:
+                applyNCPOREnvironment(
+                  prev.environment,
+                  data.stations ?? []
+                ),
+            }));
+
+          } catch (error) {
+
+            console.warn(
+              "NCPOR unavailable. "
+              + "Backend will use simulation fallback.",
+              error
+            );
+          }
+        },
+
+        NCPOR_INITIAL_DELAY_MS
       );
-    }
-  };
 
-  // Fetch immediately when the application loads
-  refreshNCPOR();
 
-  // Refresh every 5 minutes
-  const interval = setInterval(
-    refreshNCPOR,
-    5 * 60 * 1000
-  );
+    return () => {
+      mounted = false;
 
-  return () => {
-    mounted = false;
-    clearInterval(interval);
-  };
-}, []);
+      window.clearTimeout(
+        timer
+      );
+    };
+
+  }, []);
 
 
   // ==========================================================
@@ -775,38 +379,37 @@ useEffect(() => {
   // ==========================================================
 
   useEffect(() => {
+
     if (!isPlaying) {
       return;
     }
 
+
     const interval =
-      setInterval(() => {
-        setSimulation(
-          (prev) => {
-            // ------------------------------------------------
-            // Advance simulated time
-            // ------------------------------------------------
+      window.setInterval(
+        () => {
+
+          setSimulation(prev => {
 
             const deltaSeconds =
               SIM_SECONDS_PER_TICK *
               speed;
 
+
+            const deltaHours =
+              deltaSeconds / 3600;
+
+
             const newTime =
               prev.time +
               deltaSeconds;
 
-            const deltaHours =
-              deltaSeconds /
-              3600;
-
-            // ------------------------------------------------
-            // Move vessel physically
-            // ------------------------------------------------
 
             const distanceKm =
               prev.vessel.speed *
               1.852 *
               deltaHours;
+
 
             const newVessel =
               moveAlongRoute(
@@ -815,293 +418,568 @@ useEffect(() => {
                 distanceKm
               );
 
-            // ------------------------------------------------
-            // Calculate heading
-            // ------------------------------------------------
 
             const heading =
               calculateBearing(
-                prev.vessel.lat,
-                prev.vessel.lon,
-                newVessel.lat,
-                newVessel.lon
+                {
+                  lat:
+                    prev.vessel.lat,
+
+                  lon:
+                    prev.vessel.lon,
+                },
+
+                {
+                  lat:
+                    newVessel.lat,
+
+                  lon:
+                    newVessel.lon,
+                }
               );
 
-            const vesselWithHeading = {
-              ...newVessel,
 
-              // This property is ignored by older types
-              // until you add heading to VesselState.
+            const vessel = {
+              ...newVessel,
               heading,
             };
 
-            // ------------------------------------------------
-            // Update iceberg positions
-            // ------------------------------------------------
 
             const newIcebergs =
               prev.icebergs.map(
-                (iceberg) => ({
+                iceberg => ({
                   ...iceberg,
 
-                  // Treat drift values as degrees/hour.
                   lat:
                     iceberg.lat +
                     iceberg.drift_lat *
-                      deltaHours,
+                    deltaHours,
 
                   lon:
                     iceberg.lon +
                     iceberg.drift_lon *
-                      deltaHours,
+                    deltaHours,
                 })
               );
 
-            // ------------------------------------------------
-            // Generate environment
-            // ------------------------------------------------
 
-            const environment =
+            const generated =
               generateEnvironment(
-                vesselWithHeading.lat,
-                vesselWithHeading.lon,
+                vessel.lat,
+                vessel.lon,
                 newTime
               );
 
-            // ------------------------------------------------
-            // Estimate nearest iceberg risk
-            // ------------------------------------------------
 
-            let nearestIcebergDistance =
-              Infinity;
-
-            for (
-              const iceberg of newIcebergs
-            ) {
-              const distance =
-                haversineDistance(
-                  vesselWithHeading.lat,
-                  vesselWithHeading.lon,
-                  iceberg.lat,
-                  iceberg.lon
-                );
-
-              nearestIcebergDistance =
-                Math.min(
-                  nearestIcebergDistance,
-                  distance
-                );
-            }
-
-            const icebergRisk =
-              clamp(
-                1 -
-                  nearestIcebergDistance /
-                    50,
-                0,
-                1
+            const environment =
+              mergeEnvironmentSources(
+                generated,
+                prev.ncporStations
               );
 
-            // ------------------------------------------------
-            // Calculate threat vector
-            // ------------------------------------------------
 
-            const threats =
-              calculateThreatVector(
-                environment,
-                vesselWithHeading,
-                icebergRisk
-              );
+            const iceHazards =
+              calculateIcebergHazards(
+                {
+                  lat: vessel.lat,
+                  lon: vessel.lon,
+                },
 
-            // ------------------------------------------------
-            // Build hazard payload for backend
-            // ------------------------------------------------
-
-            const hazards = {
-              ...environment,
-
-              icebergs:
                 newIcebergs,
 
-              nearest_iceberg_distance:
-                nearestIcebergDistance,
+                vessel.speed
+              );
 
-              threat_vector:
-                threats,
-            };
 
-            // ------------------------------------------------
-            // Periodic AI decision
-            // ------------------------------------------------
+            const threats =
+              calculateThreats(
+                environment,
+                iceHazards.collision_risk,
+                vessel.iceRating
+              );
+
+
+            const routeDistance =
+              calculateRouteDistance(
+                prev.currentRoute
+              );
+
+
+            const distanceFromStart =
+              calculateRouteDistance(
+                buildTravelledRoute(
+                  prev.currentRoute,
+                  initialPosition.current,
+                  vessel
+                )
+              );
+
+
+            const remainingDistance =
+              Math.max(
+                0,
+                routeDistance -
+                distanceFromStart
+              );
+
+
+            const etaMinutes =
+              vessel.speed > 0
+                ? (
+                    remainingDistance /
+                    (vessel.speed * 1.852)
+                  ) * 60
+                : 0;
+
 
             const decisionBucket =
               Math.floor(
                 newTime /
-                  DECISION_INTERVAL_SECONDS
+                DECISION_INTERVAL_SECONDS
               );
+
 
             if (
               decisionBucket >
-                lastDecisionBucket.current
+              lastDecisionBucket.current
             ) {
+
               lastDecisionBucket.current =
                 decisionBucket;
 
-              // Clear old decision so the dashboard
-              // can represent the new assessment.
+
+              const hazards = {
+                ...environment,
+
+                icebergs:
+                  newIcebergs,
+
+                nearest_iceberg_distance:
+                  iceHazards
+                    .nearest_iceberg_distance_km,
+
+                threat_vector:
+                  threats,
+              };
+
+
               fetchRiskDecision(
-                vesselWithHeading,
+                vessel,
                 hazards
               )
-                .then(
-                  (decision) => {
-                    setSimulation(
-                      (current) => {
-                        if (
-                          decision.action ===
-                          'REROUTE'
-                        ) {
-                          return {
-                            ...current,
+                .then(decision => {
 
-                            riskDecision:
-                              decision,
+                  setSimulation(
+                    current => {
 
-                            previousRoute:
-                              current.currentRoute,
+                      if (
+                        decision.action ===
+                        "REROUTE"
+                      ) {
 
-                            currentRoute:
-                              decision.recommended_route,
-                          };
-                        }
+                        const oldDistance =
+                          calculateRouteDistance(
+                            current.currentRoute
+                          );
+
+                        const newDistance =
+                          calculateRouteDistance(
+                            decision
+                              .recommended_route
+                          );
+
+
+                        const riskReduction =
+                          decision.risk_score > 0
+                            ? Math.max(
+                                0,
+                                (
+                                  decision.risk_score -
+                                  threats.overall_risk
+                                ) /
+                                decision.risk_score
+                              ) * 100
+                            : 0;
+
 
                         return {
                           ...current,
 
                           riskDecision:
                             decision,
+
+                          previousRoute:
+                            current.currentRoute,
+
+                          currentRoute:
+                            decision
+                              .recommended_route,
+
+                          navigation: {
+                            ...current.navigation,
+
+                            previousRouteDistance:
+                              oldDistance,
+
+                            route_distance_km:
+                              newDistance,
+
+                            risk_reduction_pct:
+                              riskReduction,
+                          },
                         };
                       }
-                    );
-                  }
-                )
-                .catch((error) => {
+
+
+                      return {
+                        ...current,
+
+                        riskDecision:
+                          decision,
+                      };
+                    }
+                  );
+
+                })
+                .catch(error => {
+
                   console.error(
-                    'Risk decision failed:',
+                    "Risk decision failed:",
                     error
                   );
+
                 });
             }
 
-            // ------------------------------------------------
-            // Return updated state
-            // ------------------------------------------------
 
             return {
               ...prev,
 
-              time: newTime,
+              time:
+                newTime,
 
-              vessel:
-                vesselWithHeading,
+              vessel,
 
               icebergs:
                 newIcebergs,
 
-              // Store the threat vector only if
-              // your SimulationState supports it.
-              //
-              // For now this stays internal so we don't
-              // break your existing types.
+              environment,
+
+              iceHazards,
+
+              threats,
+
+              navigation: {
+                ...prev.navigation,
+
+                route_distance_km:
+                  routeDistance,
+
+                remaining_distance_km:
+                  remainingDistance,
+
+                distance_travelled_km:
+                  Math.max(
+                    0,
+                    routeDistance -
+                    remainingDistance
+                  ),
+
+                eta_minutes:
+                  etaMinutes,
+
+                route_efficiency_pct:
+                  routeDistance > 0
+                    ? Math.min(
+                        100,
+                        (
+                          (
+                            routeDistance -
+                            remainingDistance
+                          ) /
+                          routeDistance
+                        ) * 100
+                      )
+                    : 100,
+              },
             };
-          }
-        );
-      }, SIM_TICK_MS);
+          });
+
+        },
+
+        SIM_TICK_MS
+      );
+
 
     return () => {
-      clearInterval(interval);
+      window.clearInterval(
+        interval
+      );
     };
+
   }, [isPlaying, speed]);
 
+
   // ==========================================================
-  // Playback controls
+  // Controls
   // ==========================================================
 
   const handlePlayPause =
     useCallback(() => {
+
       setIsPlaying(
-        (prev) => !prev
+        previous => !previous
       );
+
     }, []);
+
 
   const handleSpeedChange =
     useCallback(
       (newSpeed: number) => {
+
         setSpeed(newSpeed);
+
       },
+
       []
     );
 
+
   const handleReset =
     useCallback(() => {
+
       setIsPlaying(false);
 
       lastDecisionBucket.current =
         -1;
 
-      setSimulation(
-        (prev) => ({
-          ...prev,
 
-          time: 0,
+      setSimulation(prev => ({
+        ...INITIAL_STATE,
 
-          vessel: {
-            lat: -60.0,
-            lon: -60.0,
-            speed: 12,
-            draft: 5.2,
-            name: 'POLARISIS',
-            iceRating: 'ARC3',
-          },
+        currentRoute:
+          prev.currentRoute,
 
-          previousRoute: [],
+        icebergs:
+          prev.icebergs,
 
-          riskDecision: null,
-        })
-      );
+        gridCells:
+          prev.gridCells,
+
+        ncporStations:
+          prev.ncporStations,
+      }));
+
     }, []);
 
-  // ==========================================================
-  // Render
-  // ==========================================================
 
   return (
     <div className="app">
+
       <div className="map-container">
 
         <Map
-          simulation={simulation}
+          simulation={
+            simulation
+          }
         />
+
 
         <Dashboard
-          simulation={simulation}
+          simulation={
+            simulation
+          }
         />
 
+
         <ReplayController
-          isPlaying={isPlaying}
-          speed={speed}
+          isPlaying={
+            isPlaying
+          }
+
+          speed={
+            speed
+          }
+
           onPlayPause={
             handlePlayPause
           }
+
           onSpeedChange={
             handleSpeedChange
           }
-          onReset={handleReset}
+
+          onReset={
+            handleReset
+          }
         />
 
       </div>
+
     </div>
   );
 };
+
+
+function applyNCPOREnvironment(
+  environment:
+    SimulationState["environment"],
+  stations:
+    SimulationState["ncporStations"]
+) {
+
+  const station =
+    stations.find(
+      item =>
+        item.status === "LIVE"
+    ) ??
+    stations.find(
+      item =>
+        item.status === "STALE"
+    ) ??
+    stations.find(
+      item =>
+        item.status === "SIMULATED"
+    );
+
+
+  if (!station) {
+    return environment;
+  }
+
+
+  return {
+    ...environment,
+
+    air_temperature:
+      station.temperature_c ??
+      environment.air_temperature,
+
+    humidity:
+      station.relative_humidity_pct ??
+      environment.humidity,
+
+    pressure:
+      station.pressure_mbar ??
+      environment.pressure,
+
+    wind_speed:
+      station.wind_speed_knots ??
+      environment.wind_speed,
+
+    source:
+      station.status === "LIVE"
+        ? "LIVE"
+        : station.status === "STALE"
+          ? "STALE"
+          : "SIMULATED",
+  };
+}
+
+
+function mergeEnvironmentSources(
+  generated:
+    SimulationState["environment"],
+  stations:
+    SimulationState["ncporStations"]
+) {
+
+  const station =
+    stations.find(
+      item =>
+        item.status === "LIVE"
+    ) ??
+    stations.find(
+      item =>
+        item.status === "STALE"
+    ) ??
+    stations.find(
+      item =>
+        item.status === "SIMULATED"
+    );
+
+
+  if (!station) {
+    return generated;
+  }
+
+
+  return {
+    ...generated,
+
+    air_temperature:
+      station.temperature_c ??
+      generated.air_temperature,
+
+    humidity:
+      station.relative_humidity_pct ??
+      generated.humidity,
+
+    pressure:
+      station.pressure_mbar ??
+      generated.pressure,
+
+    wind_speed:
+      station.wind_speed_knots ??
+      generated.wind_speed,
+
+    source:
+      station.status === "LIVE"
+        ? "LIVE"
+        : station.status === "STALE"
+          ? "STALE"
+          : "SIMULATED",
+  };
+}
+
+
+function buildTravelledRoute(
+  route: RoutePoint[],
+  start: RoutePoint,
+  vessel: RoutePoint
+): RoutePoint[] {
+
+  if (route.length < 2) {
+    return [];
+  }
+
+
+  const result: RoutePoint[] = [
+    start,
+  ];
+
+
+  for (
+    const point of route
+  ) {
+
+    if (
+      point.lat === start.lat &&
+      point.lon === start.lon
+    ) {
+      continue;
+    }
+
+    result.push(point);
+
+    if (
+      Math.abs(
+        point.lat -
+        vessel.lat
+      ) < 0.1 &&
+      Math.abs(
+        point.lon -
+        vessel.lon
+      ) < 0.1
+    ) {
+      break;
+    }
+  }
+
+
+  return result;
+}
+
 
 export default App;

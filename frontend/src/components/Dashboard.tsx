@@ -1,111 +1,589 @@
-import React from 'react';
-import { SimulationState } from '../types';
-import './Dashboard.css';
+import React from "react";
+
+import {
+  SimulationState,
+} from "../types";
+
+import "./Dashboard.css";
+
 
 interface DashboardProps {
-  simulation: SimulationState;
+  simulation:
+    SimulationState;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ simulation }) => {
-  const { vessel, riskDecision, time } = simulation;
-  const riskPercentage = riskDecision ? Math.round(riskDecision.risk_score * 100) : 0;
 
-  const formatTime = (minutes: number) => {
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
+const formatTime =
+  (minutes: number) => {
+
+    if (!Number.isFinite(minutes)) {
+      return "--";
+    }
+
+    const hours =
+      Math.floor(
+        minutes / 60
+      );
+
+    const mins =
+      Math.floor(
+        minutes % 60
+      );
+
+    if (hours > 24) {
+
+      const days =
+        Math.floor(
+          hours / 24
+        );
+
+      const remainingHours =
+        hours % 24;
+
+      return `${days}d ${remainingHours}h`;
+    }
+
     return `${hours}h ${mins}m`;
   };
 
-  return (
-    <div className="dashboard">
-      {/* Vessel Info Panel */}
-      <div className="panel vessel-info">
-        <h3>🚢 VESSEL INFO</h3>
-        <div className="info-row">
-          <span className="label">Name:</span>
-          <span className="value">{vessel.name}</span>
-        </div>
-        <div className="info-row">
-          <span className="label">Speed:</span>
-          <span className="value">{vessel.speed} knots</span>
-        </div>
-        <div className="info-row">
-          <span className="label">Draft:</span>
-          <span className="value">{vessel.draft}m</span>
-        </div>
-        <div className="info-row">
-          <span className="label">Ice Rating:</span>
-          <span className="value">{vessel.iceRating}</span>
-        </div>
-        <div className="info-row">
-          <span className="label">Position:</span>
-          <span className="value">{vessel.lat.toFixed(2)}°S, {vessel.lon.toFixed(2)}°W</span>
-        </div>
-      </div>
 
-      {/* Threat Matrix Panel */}
-      <div className="panel threat-matrix">
-        <h3>⚠️ THREAT MATRIX</h3>
-        <div className="threat-item">
-          <span className="label">Risk Score:</span>
-          <div className="progress-bar">
-            <div 
-              className="progress-fill" 
-              style={{ width: `${riskPercentage}%`, backgroundColor: riskPercentage > 50 ? '#ff6b6b' : '#4ecdc4' }}
-            />
+const formatCoordinate =
+  (value: number) => {
+
+    const direction =
+      value < 0
+        ? "S"
+        : "N";
+
+    return `${Math.abs(value).toFixed(2)}°${direction}`;
+  };
+
+
+const formatLongitude =
+  (value: number) => {
+
+    const direction =
+      value < 0
+        ? "W"
+        : "E";
+
+    return `${Math.abs(value).toFixed(2)}°${direction}`;
+  };
+
+
+const percent =
+  (value: number) =>
+    `${Math.round(value * 100)}%`;
+
+
+const Dashboard:
+  React.FC<
+    DashboardProps
+  > = ({
+    simulation,
+  }) => {
+
+    const {
+      vessel,
+      environment,
+      iceHazards,
+      navigation,
+      threats,
+      riskDecision,
+      ncporStations,
+    } = simulation;
+
+
+    const dataSource =
+      ncporStations.find(
+        station =>
+          station.status ===
+          "LIVE"
+      )
+      ? "LIVE"
+      : ncporStations.find(
+          station =>
+            station.status ===
+            "STALE"
+        )
+        ? "STALE"
+        : "SIMULATED";
+
+
+    const decisionAction =
+      riskDecision?.action ??
+      (
+        threats.overall_risk <
+        0.35
+          ? "PROCEED"
+          : threats.overall_risk <
+            0.65
+            ? "REROUTE"
+            : "HALT"
+      );
+
+
+    const decisionText =
+      decisionAction ===
+      "PROCEED"
+        ? "SAFE TO PROCEED"
+        : decisionAction ===
+          "REROUTE"
+          ? "ROUTE ADJUSTMENT REQUIRED"
+          : "HALT / AVOID AREA";
+
+
+    return (
+      <aside
+        className="dashboard"
+      >
+
+        <section
+          className="dashboard-panel"
+        >
+
+          <PanelHeader
+            icon="🚢"
+            title="VESSEL INFO"
+          />
+
+
+          <Row
+            label="Name"
+            value={
+              vessel.name
+            }
+          />
+
+          <Row
+            label="Speed"
+            value={
+              `${vessel.speed.toFixed(1)} kt`
+            }
+          />
+
+          <Row
+            label="Heading"
+            value={
+              `${Math.round(vessel.heading)}°`
+            }
+          />
+
+          <Row
+            label="Draft"
+            value={
+              `${vessel.draft.toFixed(1)} m`
+            }
+          />
+
+          <Row
+            label="Ice Rating"
+            value={
+              vessel.iceRating
+            }
+          />
+
+          <Row
+            label="Position"
+            value={
+              `${formatCoordinate(vessel.lat)}, ${formatLongitude(vessel.lon)}`
+            }
+          />
+
+        </section>
+
+
+        <section
+          className="dashboard-panel"
+        >
+
+          <PanelHeader
+            icon="🌨️"
+            title="ENVIRONMENT"
+          />
+
+
+          <Row
+            label="Temperature"
+            value={
+              `${environment.air_temperature.toFixed(1)} °C`
+            }
+          />
+
+          <Row
+            label="Humidity"
+            value={
+              `${environment.humidity.toFixed(0)} %`
+            }
+          />
+
+          <Row
+            label="Pressure"
+            value={
+              `${environment.pressure.toFixed(1)} mbar`
+            }
+          />
+
+          <Row
+            label="Wind"
+            value={
+              `${environment.wind_speed.toFixed(1)} kt`
+            }
+          />
+
+          <Row
+            label="Wind Direction"
+            value={
+              `${Math.round(environment.wind_direction)}°`
+            }
+          />
+
+          <Row
+            label="Waves"
+            value={
+              `${environment.wave_height.toFixed(1)} m / ${environment.wave_period.toFixed(1)} s`
+            }
+          />
+
+          <Row
+            label="Sea Ice"
+            value={
+              percent(
+                environment.sea_ice_concentration
+              )
+            }
+          />
+
+          <Row
+            label="Ice Thickness"
+            value={
+              `${environment.ice_thickness.toFixed(2)} m`
+            }
+          />
+
+          <Row
+            label="Visibility"
+            value={
+              `${environment.visibility.toFixed(1)} km`
+            }
+          />
+
+          <Row
+            label="Current"
+            value={
+              `${environment.current_speed.toFixed(2)} kt @ ${Math.round(environment.current_direction)}°`
+            }
+          />
+
+        </section>
+
+
+        <section
+          className="dashboard-panel"
+        >
+
+          <PanelHeader
+            icon="⚠️"
+            title="ICE HAZARDS"
+          />
+
+
+          <RiskBar
+            value={
+              iceHazards.collision_risk
+            }
+          />
+
+
+          <Row
+            label="Icebergs"
+            value={
+              String(
+                iceHazards.iceberg_count
+              )
+            }
+          />
+
+          <Row
+            label="Nearest"
+            value={
+              iceHazards
+                .nearest_iceberg_distance_km
+                !== null
+                ? `${iceHazards.nearest_iceberg_distance_km.toFixed(1)} km`
+                : "--"
+            }
+          />
+
+          <Row
+            label="Nearest ID"
+            value={
+              iceHazards
+                .nearest_iceberg_id
+              ?? "--"
+            }
+          />
+
+          <Row
+            label="Largest"
+            value={
+              iceHazards
+                .largest_iceberg_size
+              ?? "--"
+            }
+          />
+
+          <Row
+            label="CPA"
+            value={
+              iceHazards.cpa_minutes !== null
+                ? `${iceHazards.cpa_minutes.toFixed(0)} min`
+                : "--"
+            }
+          />
+
+        </section>
+
+
+        <section
+          className="dashboard-panel"
+        >
+
+          <PanelHeader
+            icon="🧭"
+            title="NAVIGATION"
+          />
+
+
+          <Row
+            label="Route"
+            value={
+              `${navigation.route_distance_km.toFixed(0)} km`
+            }
+          />
+
+          <Row
+            label="Remaining"
+            value={
+              `${navigation.remaining_distance_km.toFixed(0)} km`
+            }
+          />
+
+          <Row
+            label="Travelled"
+            value={
+              `${navigation.distance_travelled_km.toFixed(0)} km`
+            }
+          />
+
+          <Row
+            label="ETA"
+            value={
+              formatTime(
+                navigation.eta_minutes
+              )
+            }
+          />
+
+          <Row
+            label="Progress"
+            value={
+              `${navigation.route_efficiency_pct.toFixed(0)}%`
+            }
+          />
+
+          <Row
+            label="Risk Reduction"
+            value={
+              navigation.risk_reduction_pct !== null
+                ? `${navigation.risk_reduction_pct.toFixed(0)}%`
+                : "--"
+            }
+          />
+
+        </section>
+
+
+        <section
+          className="dashboard-panel"
+        >
+
+          <PanelHeader
+            icon="🤖"
+            title="AI DECISION"
+          />
+
+
+          <div
+            className={`decision decision-${decisionAction.toLowerCase()}`}
+          >
+            {decisionText}
           </div>
-          <span className="value">{riskPercentage}%</span>
-        </div>
-        <div className="threat-item">
-          <span className="label">Icebergs Detected:</span>
-          <span className="value status-warning">{simulation.icebergs.length}</span>
-        </div>
-        <div className="threat-item">
-          <span className="label">Ice Concentration:</span>
-          <span className="value">MODERATE</span>
-        </div>
-        <div className="threat-item">
-          <span className="label">Wave Height:</span>
-          <span className="value">3-4m</span>
-        </div>
-      </div>
 
-      {/* AI Decision Panel */}
-      <div className="panel ai-decision">
-        <h3>🤖 AI DECISION</h3>
-        {riskDecision ? (
-          <>
-            <div className="alert-banner" style={{ backgroundColor: riskDecision.action === 'REROUTE' ? '#ff6b6b' : '#4ecdc4' }}>
-              {riskDecision.action === 'REROUTE' && '⚠️ REROUTE RECOMMENDED'}
-              {riskDecision.action === 'PROCEED' && '✓ SAFE TO PROCEED'}
-              {riskDecision.action === 'HALT' && '🛑 HALT ADVISED'}
-            </div>
-            <div className="decision-row">
-              <span className="label">Confidence:</span>
-              <span className="value">{Math.round(riskDecision.confidence * 100)}%</span>
-            </div>
-            <div className="decision-row">
-              <span className="label">ETA (Current Route):</span>
-              <span className="value">{formatTime(riskDecision.eta_minutes)}</span>
-            </div>
-            <div className="decision-row">
-              <span className="label">Risk Reduction:</span>
-              <span className="value status-success">
-                {riskPercentage}% → {Math.round(riskDecision.risk_score * 0.2 * 100)}%
-              </span>
-            </div>
-          </>
-        ) : (
-          <p className="status-info">Analyzing threats...</p>
-        )}
-      </div>
 
-      {/* Simulation Time */}
-      <div className="simulation-time">
-        Simulation Time: {Math.floor(time / 3600)}h {Math.floor((time % 3600) / 60)}m
-      </div>
+          <Row
+            label="Risk Score"
+            value={
+              `${Math.round(threats.overall_risk * 100)}%`
+            }
+          />
+
+
+          <Row
+            label="Ice Risk"
+            value={
+              `${Math.round(threats.ice_risk * 100)}%`
+            }
+          />
+
+
+          <Row
+            label="Weather Risk"
+            value={
+              `${Math.round(threats.weather_risk * 100)}%`
+            }
+          />
+
+
+          <Row
+            label="Confidence"
+            value={
+              riskDecision
+                ? `${Math.round(riskDecision.confidence * 100)}%`
+                : "--"
+            }
+          />
+
+        </section>
+
+
+        <section
+          className="dashboard-panel data-panel"
+        >
+
+          <PanelHeader
+            icon="📡"
+            title="DATA SOURCE"
+          />
+
+
+          <div className="data-status">
+
+            <span
+              className={`status-dot status-${dataSource.toLowerCase()}`}
+            />
+
+            <span>
+              NCPOR
+            </span>
+
+            <strong>
+              {dataSource}
+            </strong>
+
+          </div>
+
+
+          {dataSource ===
+            "SIMULATED" && (
+              <p className="data-warning">
+                NCPOR unavailable.
+                Synthetic demonstration
+                data is active.
+              </p>
+          )}
+
+        </section>
+
+      </aside>
+    );
+  };
+
+
+function PanelHeader({
+  icon,
+  title,
+}: {
+  icon: string;
+  title: string;
+}) {
+
+  return (
+    <div
+      className="panel-header"
+    >
+
+      <span>
+        {icon}
+      </span>
+
+      <strong>
+        {title}
+      </strong>
+
     </div>
   );
-};
+}
+
+
+function Row({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+
+  return (
+    <div
+      className="dashboard-row"
+    >
+
+      <span>
+        {label}
+      </span>
+
+      <strong>
+        {value}
+      </strong>
+
+    </div>
+  );
+}
+
+
+function RiskBar({
+  value,
+}: {
+  value: number;
+}) {
+
+  return (
+    <div
+      className="risk-bar"
+    >
+
+      <div
+        className="risk-bar-track"
+      >
+
+        <div
+          className="risk-bar-fill"
+          style={{
+            width:
+              `${Math.round(value * 100)}%`,
+          }}
+        />
+
+      </div>
+
+      <span>
+        {Math.round(value * 100)}%
+      </span>
+
+    </div>
+  );
+}
+
 
 export default Dashboard;

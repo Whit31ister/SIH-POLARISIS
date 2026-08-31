@@ -1,100 +1,120 @@
-import axios from 'axios';
-import {    RoutePoint,
-            RiskDecision,
-            VesselState,
-            NCPORStation, } from '../types';
+import axios from "axios";
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+import {
+  RoutePoint,
+  RiskDecision,
+  VesselState,
+  NCPORStation,
+} from "../types";
 
-export const api = axios.create({
-  baseURL: API_BASE,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
 
-export interface NCPORResponse {
-  source: string;
-  updated_at: string | null;
-  stations: NCPORStation[];
-}
+const API_BASE =
+  import.meta.env.VITE_API_URL ||
+  "http://localhost:8000";
 
-export async function fetchNCPORData(): Promise<NCPORResponse> {
-  try {
-    const response = await api.get<NCPORResponse>(
-      '/data/ncpor'
-    );
 
-    return response.data;
-  } catch (error) {
-    console.error(
-      'Error fetching NCPOR data:',
-      error
-    );
+export const api =
+  axios.create({
+    baseURL: API_BASE,
 
-    throw error;
-  }
-}
+    headers: {
+      "Content-Type":
+        "application/json",
+    },
+
+    timeout: 15000,
+  });
+
 
 export async function fetchRoute(
   start: RoutePoint,
   destination: RoutePoint,
   vessel: VesselState
 ): Promise<RoutePoint[]> {
-  try {
-    const response = await api.post('/route', {
-      start,
-      destination,
-      vessel_speed: vessel.speed,
-      vessel_draft: vessel.draft,
-      ice_capability: vessel.iceRating,
-    });
-    return response.data.route;
-  } catch (error) {
-    console.error('Error fetching route:', error);
-    throw error;
-  }
+
+  const response =
+    await api.post(
+      "/route",
+      {
+        start,
+        destination,
+
+        vessel_speed:
+          vessel.speed,
+
+        vessel_draft:
+          vessel.draft,
+
+        ice_capability:
+          vessel.iceRating,
+      }
+    );
+
+  return response.data.route;
 }
+
 
 export async function fetchRiskDecision(
   vessel: VesselState,
-  hazards: any
+  hazards: unknown
 ): Promise<RiskDecision> {
-  try {
-    const response = await api.post('/decision', {
-      vessel_speed: vessel.speed,
-      vessel_draft: vessel.draft,
-      ice_capability: vessel.iceRating,
-      hazards,
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Error fetching risk decision:', error);
-    throw error;
-  }
+
+  const response =
+    await api.post(
+      "/decision",
+      {
+        vessel_speed:
+          vessel.speed,
+
+        vessel_draft:
+          vessel.draft,
+
+        ice_capability:
+          vessel.iceRating,
+
+        hazards,
+      }
+    );
+
+  return response.data;
 }
 
-export async function fetchSimulationData(): Promise<any> {
-  try {
-    const [
-      shipRes,
-      icebergsRes,
-      gridRes,
-      ncporRes,
-    ] = await Promise.all([
-      api.get('/data/ship'),
-      api.get('/data/icebergs'),
-      api.get('/data/ice_grid'),
-      api.get<NCPORResponse>('/data/ncpor'),
-    ]);
-    return {
-      ship: shipRes.data,
-      icebergs: icebergsRes.data,
-      grid: gridRes.data,
-      ncporStations: ncporRes.data.stations,
-    };
-  } catch (error) {
-    console.error('Error fetching simulation data:', error);
-    throw error;
-  }
+
+export async function fetchSimulationData() {
+
+  const [
+    shipRes,
+    icebergsRes,
+    gridRes,
+  ] = await Promise.all([
+    api.get("/data/ship"),
+    api.get("/data/icebergs"),
+    api.get("/data/ice_grid"),
+  ]);
+
+  return {
+    ship:
+      shipRes.data,
+
+    icebergs:
+      icebergsRes.data,
+
+    grid:
+      gridRes.data,
+  };
+}
+
+
+export async function fetchNCPORData(): Promise<{
+  source: string;
+  updated_at: string;
+  stations: NCPORStation[];
+}> {
+
+  const response =
+    await api.get(
+      "/data/ncpor"
+    );
+
+  return response.data;
 }

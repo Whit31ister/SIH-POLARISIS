@@ -1,27 +1,45 @@
 #!/bin/bash
 
-# POLARISIS Backend Development Server
+set -e
+
+# Always run relative to the project root
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BACKEND_DIR="$PROJECT_DIR/backend"
 
 echo "🚀 Starting POLARISIS Backend..."
 echo "=================================="
 
-cd backend
+cd "$BACKEND_DIR"
 
-# Check if venv exists
+# Make sure the virtual environment exists
 if [ ! -d "venv" ]; then
-    echo "📦 Creating virtual environment..."
-    python3 -m venv venv
+    echo "❌ Backend virtual environment not found."
+    echo "Run ./setup.sh first."
+    exit 1
 fi
 
-# Activate venv
-source venv/bin/activate
+# Make sure Python is working
+if [ ! -x "venv/bin/python" ]; then
+    echo "❌ Backend Python executable not found."
+    exit 1
+fi
 
-# Install dependencies
-echo "📥 Installing dependencies..."
-pip install -q -r requirements.txt
+echo "🐍 Python:"
+venv/bin/python --version
 
-# Run FastAPI
-echo "✅ Backend ready at http://localhost:8000"
-echo "📖 API docs at http://localhost:8000/docs"
 echo ""
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+echo "📡 Backend API:"
+echo "http://localhost:8000"
+
+echo ""
+echo "📚 API documentation:"
+echo "http://localhost:8000/docs"
+
+echo ""
+echo "❤️ Health check:"
+echo "http://localhost:8000/health"
+
+echo ""
+echo "=================================="
+
+exec venv/bin/python -m uvicorn app.main:app --reload
