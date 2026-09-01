@@ -235,7 +235,8 @@ def _fallback_station(
 
     station = STATIONS[station_id]
 
-    values = fallback.get(station_id)
+    station_values = fallback.get("stations", {})
+    values = station_values.get(station_id)
 
     if not isinstance(values, dict):
         return StationObservation(
@@ -248,6 +249,12 @@ def _fallback_station(
             status="ERROR",
             error=error,
         )
+
+    observations = values.get("observations", [])
+    if isinstance(observations, list) and observations:
+        first_observation = observations[0]
+        if isinstance(first_observation, dict):
+            values = first_observation
 
     return StationObservation(
         id=station_id,

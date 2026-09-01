@@ -106,8 +106,8 @@ export function calculateIcebergHazards(
   };
 
   let largest:
-    Iceberg["size"] =
-      null;
+    NonNullable<Iceberg["size"]> |
+    null = null;
 
   for (
     const iceberg of icebergs

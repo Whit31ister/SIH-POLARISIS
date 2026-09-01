@@ -56,7 +56,8 @@ export async function fetchRoute(
 
 export async function fetchRiskDecision(
   vessel: VesselState,
-  hazards: unknown
+  hazards: unknown,
+  route: RoutePoint[] = []
 ): Promise<RiskDecision> {
 
   const response =
@@ -71,6 +72,13 @@ export async function fetchRiskDecision(
 
         ice_capability:
           vessel.iceRating,
+
+        vessel_position: {
+          lat: vessel.lat,
+          lon: vessel.lon,
+        },
+
+        route,
 
         hazards,
       }

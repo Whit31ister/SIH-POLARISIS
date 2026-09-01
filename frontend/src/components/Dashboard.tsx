@@ -61,7 +61,6 @@ const formatCoordinate =
 
 const formatLongitude =
   (value: number) => {
-
     const direction =
       value < 0
         ? "W"
@@ -143,7 +142,6 @@ const Dashboard:
         >
 
           <PanelHeader
-            icon="🚢"
             title="VESSEL INFO"
           />
 
@@ -198,7 +196,6 @@ const Dashboard:
         >
 
           <PanelHeader
-            icon="🌨️"
             title="ENVIRONMENT"
           />
 
@@ -283,7 +280,6 @@ const Dashboard:
         >
 
           <PanelHeader
-            icon="⚠️"
             title="ICE HAZARDS"
           />
 
@@ -317,7 +313,7 @@ const Dashboard:
 
           <Row
             label="Nearest ID"
-            value={
+              value={
               iceHazards
                 .nearest_iceberg_id
               ?? "--"
@@ -350,7 +346,6 @@ const Dashboard:
         >
 
           <PanelHeader
-            icon="🧭"
             title="NAVIGATION"
           />
 
@@ -409,7 +404,6 @@ const Dashboard:
         >
 
           <PanelHeader
-            icon="🤖"
             title="AI DECISION"
           />
 
@@ -462,7 +456,6 @@ const Dashboard:
         >
 
           <PanelHeader
-            icon="📡"
             title="DATA SOURCE"
           />
 
@@ -501,10 +494,8 @@ const Dashboard:
 
 
 function PanelHeader({
-  icon,
   title,
 }: {
-  icon: string;
   title: string;
 }) {
 
@@ -512,10 +503,6 @@ function PanelHeader({
     <div
       className="panel-header"
     >
-
-      <span>
-        {icon}
-      </span>
 
       <strong>
         {title}

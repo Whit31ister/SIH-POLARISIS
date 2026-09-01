@@ -7,12 +7,12 @@ import numpy as np
 class AStar:
     """A* pathfinding algorithm for route optimization"""
 
-    def __init__(self, grid_cells: Dict, width: float = 5.0, height: float = 5.0):
+    def __init__(self, grid_cells: List[Dict], width: float = 5.0, height: float = 5.0):
         """
         Initialize A* pathfinder with grid
 
         Args:
-            grid_cells: Dictionary of grid cells with their properties
+            grid_cells: List of GeoJSON grid cells with their properties
             width: Width of grid cell in degrees
             height: Height of grid cell in degrees
         """

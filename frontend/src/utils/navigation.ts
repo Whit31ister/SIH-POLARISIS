@@ -232,9 +232,6 @@ export function moveAlongRoute(
 
   let remaining = distanceKm;
 
-  const start =
-    route[nearestSegment];
-
   const next =
     route[nearestSegment + 1];
 
