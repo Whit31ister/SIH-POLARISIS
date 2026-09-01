@@ -54,6 +54,8 @@ cleanup() {
 
 trap cleanup INT TERM EXIT
 
+export POLARISIS_LAUNCHER_PID=$$
+
 "$PYTHON" -m uvicorn app.main:app --app-dir "$BACKEND_DIR" --host 0.0.0.0 --port 8000 --reload &
 BACKEND_PID=$!
 

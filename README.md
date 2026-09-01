@@ -79,6 +79,7 @@ All endpoints are available under the root API URL.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/health` | Service health |
+| POST | `/shutdown` | Stops both services when started by `run-project.sh` |
 | GET | `/data/ship` | Demo vessel state |
 | GET | `/data/icebergs` | Iceberg positions and drift |
 | GET | `/data/ice_grid` | GeoJSON polar grid |
@@ -122,6 +123,8 @@ A decision request must include the current vessel position and route:
 ```
 
 The response contains `risk_score`, `confidence`, `eta_minutes`, `action`, and `recommended_route`.
+
+The dashboard includes a **Stop project** control. It calls `POST /shutdown` and stops both development services when the application was started with `run-project.sh`. For independently started services, the endpoint declines the request and the terminal commands must be stopped manually.
 
 ## NCPOR Data Policy
 

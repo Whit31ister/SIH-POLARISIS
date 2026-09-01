@@ -126,3 +126,11 @@ export async function fetchNCPORData(): Promise<{
 
   return response.data;
 }
+
+export async function shutdownProject(): Promise<{
+  status: string;
+  message: string;
+}> {
+  const response = await api.post("/shutdown");
+  return response.data;
+}

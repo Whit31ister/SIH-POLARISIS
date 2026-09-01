@@ -1,5 +1,8 @@
 from datetime import datetime, timezone
+import os
+import signal
 import sys
+import threading
 
 from fastapi import APIRouter
 
@@ -89,6 +92,7 @@ async def health_check():
         },
         "endpoints": [
             "GET /health",
+            "POST /shutdown",
             "GET /data/ship",
             "GET /data/icebergs",
             "GET /data/ice_grid",
@@ -98,4 +102,28 @@ async def health_check():
             "POST /decision",
             "POST /simulate",
         ],
+    }
+
+
+@router.post("/shutdown")
+async def shutdown_project():
+    launcher_pid = os.environ.get("POLARISIS_LAUNCHER_PID")
+    if not launcher_pid or not launcher_pid.isdigit():
+        return {
+            "status": "unavailable",
+            "message": "Start the project with run-project.sh to enable full shutdown.",
+        }
+
+    pid = int(launcher_pid)
+
+    def stop_launcher():
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+    threading.Timer(0.2, stop_launcher).start()
+    return {
+        "status": "shutting_down",
+        "message": "POLARISIS frontend and backend are shutting down.",
     }

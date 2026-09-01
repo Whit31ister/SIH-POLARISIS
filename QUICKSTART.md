@@ -8,6 +8,8 @@ From the repository root:
 
 This creates or reuses `backend/venv`, installs missing dependencies, and starts the FastAPI backend and Vite frontend together. Press `Ctrl+C` to stop both services.
 
+The dashboard's **Stop project** button also stops both services when this launcher is being used.
+
 Open the dashboard at http://localhost:5173. The API is at http://localhost:8000 and interactive API documentation is at http://localhost:8000/docs.
 
 For architecture, API payloads, NCPOR fallback rules, simulation behavior, configuration, Docker, C++ integration, verification, and limitations, see [README.md](README.md).

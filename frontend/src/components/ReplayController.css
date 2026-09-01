@@ -42,6 +42,22 @@
   min-width: 44px;
 }
 
+.shutdown-btn {
+  color: #e06464;
+  border-color: #e06464;
+  font-size: 12px;
+}
+
+.shutdown-btn:hover {
+  background: rgba(224, 100, 100, 0.18);
+  box-shadow: 0 0 10px rgba(224, 100, 100, 0.25);
+}
+
+.shutdown-btn:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .speed-control {
   display: flex;
   align-items: center;

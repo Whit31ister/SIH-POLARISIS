@@ -7,6 +7,8 @@ interface ReplayControllerProps {
   onPlayPause: () => void;
   onSpeedChange: (speed: number) => void;
   onReset: () => void;
+  onShutdown: () => void;
+  isShuttingDown: boolean;
 }
 
 const ReplayController: React.FC<ReplayControllerProps> = ({
@@ -15,6 +17,8 @@ const ReplayController: React.FC<ReplayControllerProps> = ({
   onPlayPause,
   onSpeedChange,
   onReset,
+  onShutdown,
+  isShuttingDown,
 }) => {
   return (
     <div className="replay-controller">
@@ -46,6 +50,15 @@ const ReplayController: React.FC<ReplayControllerProps> = ({
         title="Reset simulation"
       >
         ↻
+      </button>
+
+      <button
+        className="control-btn shutdown-btn"
+        onClick={onShutdown}
+        disabled={isShuttingDown}
+        title="Stop frontend and backend"
+      >
+        {isShuttingDown ? 'Stopping' : 'Stop project'}
       </button>
     </div>
   );
