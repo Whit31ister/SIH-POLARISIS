@@ -105,7 +105,10 @@ export async function fetchSimulationData() {
       shipRes.data,
 
     icebergs:
-      icebergsRes.data,
+      icebergsRes.data.map((iceberg: Record<string, unknown>) => ({
+        ...iceberg,
+        size: iceberg.size ?? iceberg.size_class,
+      })),
 
     grid:
       gridRes.data,

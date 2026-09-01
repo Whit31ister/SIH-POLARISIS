@@ -301,6 +301,11 @@ const Dashboard:
           />
 
           <Row
+            label="Data Source"
+            value="SIMULATED"
+          />
+
+          <Row
             label="Nearest"
             value={
               iceHazards
