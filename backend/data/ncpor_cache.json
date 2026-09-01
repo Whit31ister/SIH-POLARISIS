@@ -1,0 +1,40 @@
+{
+  "maitri": {
+    "id": "maitri",
+    "name": "Maitri",
+    "region": "Antarctica",
+    "lat": -70.764444,
+    "lon": 11.734167,
+    "temperature_c": -11.2,
+    "relative_humidity_pct": 81.52,
+    "pressure_mbar": 968.77,
+    "wind_speed_knots": 30.9,
+    "wind_speed_mps": 17.87,
+    "observation_date": "30 Aug 2026",
+    "fetched_at": 1788234509.7131443,
+    "source_url": "https://data.ncpor.res.in/maitri/live",
+    "status": "LIVE",
+    "error": null,
+    "data_age_seconds": null,
+    "is_cached": false
+  },
+  "bharati": {
+    "id": "bharati",
+    "name": "Bharati",
+    "region": "Antarctica",
+    "lat": -69.406833,
+    "lon": 76.195333,
+    "temperature_c": -20.82,
+    "relative_humidity_pct": 48.6,
+    "pressure_mbar": 983.1,
+    "wind_speed_knots": 20.93,
+    "wind_speed_mps": 16.57,
+    "observation_date": "30 Aug 2026",
+    "fetched_at": 1788234511.0367124,
+    "source_url": "https://data.ncpor.res.in/bharati/live",
+    "status": "LIVE",
+    "error": null,
+    "data_age_seconds": null,
+    "is_cached": false
+  }
+}

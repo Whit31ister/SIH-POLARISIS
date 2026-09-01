@@ -38,6 +38,7 @@ SESSION BEHAVIOR:
 from __future__ import annotations
 
 import json
+import html as html_module
 import logging
 import re
 import time
@@ -336,7 +337,7 @@ def _html_to_text(
         text,
     )
 
-    return text.strip()
+    return html_module.unescape(text).strip()
 
 
 def _extract_float(
@@ -410,16 +411,16 @@ def _parse_live_page(
 
     wind_knots = _extract_float(
         [
-            r"Wind\s+Speed\s*:\s*(\d+(?:\.\d+)?)\s*knots?",
-            r"Wind\s*:\s*(\d+(?:\.\d+)?)\s*knots?",
+            r"Wind\s+Speed\s*:?\s*(\d+(?:\.\d+)?)\s*knots?",
+            r"Wind\s*:?\s*(\d+(?:\.\d+)?)\s*knots?",
         ],
         text,
     )
 
     wind_mps = _extract_float(
         [
-            r"Wind\s+Speed\s*:\s*(\d+(?:\.\d+)?)\s*m/s",
-            r"Wind\s*:\s*(\d+(?:\.\d+)?)\s*m/s",
+            r"Wind\s+Speed\s*:?\s*(\d+(?:\.\d+)?)\s*m/s",
+            r"Wind\s*:?\s*(\d+(?:\.\d+)?)\s*m/s",
         ],
         text,
     )
