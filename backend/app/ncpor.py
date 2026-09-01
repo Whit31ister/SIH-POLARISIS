@@ -699,6 +699,16 @@ def get_station(
 
     if not _ncpor_available:
 
+        cached = _cached_station(
+            station_id,
+            cache,
+            _ncpor_error
+            or "NCPOR unavailable",
+        )
+
+        if cached.status == "STALE":
+            return cached
+
         fallback = _load_fallback()
 
         return _fallback_station(

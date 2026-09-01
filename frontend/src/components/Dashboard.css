@@ -59,6 +59,13 @@
 .decision-halt { color: var(--hazard-high); }
 
 .data-panel { padding-bottom: 12px; }
+.route-options { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.route-options-title { margin-bottom: 7px; color: var(--text-strong); font-size: 11px; letter-spacing: 0.12em; }
+.route-option { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 6px; min-height: 30px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); font-size: 10px; }
+.route-option > span:nth-child(2) { color: var(--text-muted); }
+.route-option button { padding: 3px 7px; border: 1px solid var(--line); border-radius: 3px; background: #252525; color: var(--text-strong); cursor: pointer; font: inherit; }
+.route-option button:first-of-type { border-color: var(--hazard-low); color: var(--hazard-low); }
+.route-option button:hover { background: #3a3a3a; }
 .data-status { display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: 12px; }
 .data-status strong { margin-left: auto; color: var(--text-strong); font-weight: 500; }
 .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }

@@ -45,6 +45,15 @@ export interface RoutePoint {
   lon: number;
 }
 
+export interface AlternativeRoute {
+  id: string;
+  label: string;
+  route: RoutePoint[];
+  distance_km: number;
+  risk_score: number;
+  color: string;
+}
+
 
 export interface RiskDecision {
   risk_score: number;
@@ -196,6 +205,8 @@ export interface SimulationState {
   currentRoute: RoutePoint[];
 
   previousRoute: RoutePoint[];
+  destination: RoutePoint;
+  alternativeRoutes: AlternativeRoute[];
 
   riskDecision: RiskDecision | null;
 

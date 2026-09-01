@@ -10,6 +10,8 @@ import "./Dashboard.css";
 interface DashboardProps {
   simulation:
     SimulationState;
+  onAlternativeSelect: (routeId: string) => void;
+  onAlternativeReject: (routeId: string) => void;
 }
 
 
@@ -80,6 +82,8 @@ const Dashboard:
     DashboardProps
   > = ({
     simulation,
+    onAlternativeSelect,
+    onAlternativeReject,
   }) => {
 
     const {
@@ -363,6 +367,11 @@ const Dashboard:
           />
 
           <Row
+            label="Destination"
+            value={`${formatCoordinate(simulation.destination.lat)}, ${formatLongitude(simulation.destination.lon)}`}
+          />
+
+          <Row
             label="Remaining"
             value={
               `${navigation.remaining_distance_km.toFixed(0)} km`
@@ -400,6 +409,20 @@ const Dashboard:
                 : "--"
             }
           />
+
+          {simulation.alternativeRoutes.length > 0 && (
+            <div className="route-options">
+              <div className="route-options-title">ALTERNATIVE ROUTES</div>
+              {simulation.alternativeRoutes.map((alternative) => (
+                <div className="route-option" key={alternative.id}>
+                  <span style={{ color: alternative.color }}>{alternative.label}</span>
+                  <span>{alternative.distance_km.toFixed(0)} km / {Math.round(alternative.risk_score * 100)}% risk</span>
+                  <button type="button" onClick={() => onAlternativeSelect(alternative.id)}>Yes</button>
+                  <button type="button" onClick={() => onAlternativeReject(alternative.id)}>No</button>
+                </div>
+              ))}
+            </div>
+          )}
 
         </section>
 

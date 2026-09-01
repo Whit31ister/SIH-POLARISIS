@@ -9,11 +9,12 @@ import {
 import {
   calculateBearing,
   calculateRouteDistance,
+  haversineDistance,
   moveAlongRoute,
 } from "../utils/navigation";
 import { generateEnvironment } from "../utils/environment";
 import { calculateIcebergHazards, calculateThreats } from "../utils/hazards";
-import { EnvironmentState, RoutePoint, SimulationState, VesselState } from "../types";
+import { AlternativeRoute, EnvironmentState, RoutePoint, SimulationState, VesselState } from "../types";
 
 const TICK_MS = 250;
 const SIMULATION_SECONDS_PER_TICK = 300;
@@ -21,6 +22,7 @@ const DECISION_INTERVAL_SECONDS = 1800;
 const NCPOR_DELAY_MS = 5000;
 
 const DESTINATION: RoutePoint = { lat: -64, lon: -63 };
+const ALTERNATIVE_COLORS = ["#e0aa4b", "#d8895b", "#c47ac0", "#79a8d8", "#79c1b0"];
 const DEFAULT_VESSEL: VesselState = {
   lat: -60,
   lon: -60,
@@ -39,6 +41,8 @@ function createInitialState(): SimulationState {
     gridCells: [],
     currentRoute: [],
     previousRoute: [],
+    destination: DESTINATION,
+    alternativeRoutes: [],
     riskDecision: null,
     ncporStations: [],
     environment: generateEnvironment(DEFAULT_VESSEL.lat, DEFAULT_VESSEL.lon, 0),
@@ -109,6 +113,68 @@ export function useSimulation() {
   const [speed, setSpeed] = useState(1);
   const origin = useRef<RoutePoint>(DEFAULT_VESSEL);
   const lastDecisionBucket = useRef(-1);
+  const simulationRef = useRef<SimulationState>(simulation);
+
+  useEffect(() => {
+    simulationRef.current = simulation;
+  }, [simulation]);
+
+  const generateAlternatives = useCallback((start: RoutePoint, destination: RoutePoint, environment: EnvironmentState, icebergs: SimulationState["icebergs"]): AlternativeRoute[] => {
+    const latDelta = destination.lat - start.lat;
+    const lonDelta = destination.lon - start.lon;
+    const offsets = [-0.9, -0.45, 0.45, 0.9, 1.35];
+    return offsets.map((offset, index) => {
+      const waypoint = {
+        lat: start.lat + latDelta * 0.5 + offset,
+        lon: start.lon + lonDelta * 0.5 + offset * 0.35,
+      };
+      const route = [start, waypoint, destination];
+      const distance = calculateRouteDistance(route);
+      const routeSamples = [start, waypoint, destination];
+      const closestIceberg = icebergs.reduce((minimum, iceberg) => {
+        const distanceToRoute = Math.min(
+          ...routeSamples.map((point) => haversineDistance(point, iceberg)),
+        );
+        return Math.min(minimum, distanceToRoute);
+      }, Infinity);
+      const icebergExposure = Number.isFinite(closestIceberg)
+        ? Math.max(0, 1 - closestIceberg / 140) * 0.5
+        : 0;
+      const weatherExposure = environment.wind_speed / 140;
+      const iceExposure = environment.sea_ice_concentration * 0.22;
+      const southernIceExposure = Math.max(0, Math.min(1, (-waypoint.lat - 60) / 5)) * 0.22;
+      const detourExposure = Math.max(0, distance - Math.abs(latDelta) * 111) / 1200;
+      const risk = Math.min(1, iceExposure + weatherExposure + icebergExposure + southernIceExposure + detourExposure);
+      return { id: `alternative-${index + 1}`, label: `Alternative ${index + 1}`, route, distance_km: distance, risk_score: risk, color: ALTERNATIVE_COLORS[index] };
+    });
+  }, []);
+
+  const selectDestination = useCallback(async (destination: RoutePoint) => {
+    setSimulation((current) => ({ ...current, destination, alternativeRoutes: [] }));
+    const current = simulationRef.current;
+    try {
+      const route = await fetchRoute({ lat: current.vessel.lat, lon: current.vessel.lon }, destination, current.vessel);
+      const alternatives = generateAlternatives({ lat: current.vessel.lat, lon: current.vessel.lon }, destination, current.environment, current.icebergs);
+      setSimulation((latest) => ({ ...latest, destination, currentRoute: route, alternativeRoutes: alternatives, navigation: { ...latest.navigation, route_distance_km: calculateRouteDistance(route), remaining_distance_km: calculateRouteDistance(route) } }));
+    } catch (error) {
+      console.error("Failed to calculate route for destination:", error);
+    }
+  }, [generateAlternatives]);
+
+  const chooseAlternative = useCallback((routeId: string) => {
+    setSimulation((current) => {
+      const selected = current.alternativeRoutes.find((alternative) => alternative.id === routeId);
+      if (!selected) return current;
+      return { ...current, previousRoute: current.currentRoute, currentRoute: selected.route, alternativeRoutes: current.alternativeRoutes.filter((alternative) => alternative.id !== routeId), navigation: { ...current.navigation, route_distance_km: selected.distance_km, remaining_distance_km: selected.distance_km, risk_reduction_pct: Math.max(0, (current.threats.overall_risk - selected.risk_score) / Math.max(current.threats.overall_risk, 0.01)) * 100 } };
+    });
+  }, []);
+
+  const rejectAlternative = useCallback((routeId: string) => {
+    setSimulation((current) => ({
+      ...current,
+      alternativeRoutes: current.alternativeRoutes.filter((alternative) => alternative.id !== routeId),
+    }));
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -130,9 +196,27 @@ export function useSimulation() {
         const route = await fetchRoute(origin.current, DESTINATION, vessel);
         if (!active) return;
         const distance = calculateRouteDistance(route);
+        const iceHazards = calculateIcebergHazards(vessel, data.icebergs ?? [], vessel.speed);
+        const threats = calculateThreats(
+          generateEnvironment(vessel.lat, vessel.lon, 0),
+          iceHazards.collision_risk,
+          vessel.iceRating,
+        );
         setSimulation((current) => ({
           ...current,
           currentRoute: route,
+          vessel,
+          icebergs: data.icebergs ?? [],
+          gridCells: data.grid ?? [],
+          iceHazards,
+          threats,
+          destination: DESTINATION,
+          alternativeRoutes: generateAlternatives(
+            origin.current,
+            DESTINATION,
+            current.environment,
+            data.icebergs ?? [],
+          ),
           navigation: { ...current.navigation, route_distance_km: distance, remaining_distance_km: distance },
         }));
       } catch (error) {
@@ -235,7 +319,7 @@ export function useSimulation() {
   const reset = useCallback(() => {
     setIsPlaying(false);
     lastDecisionBucket.current = -1;
-    setSimulation((current) => ({ ...createInitialState(), currentRoute: current.currentRoute, icebergs: current.icebergs, gridCells: current.gridCells, ncporStations: current.ncporStations }));
+    setSimulation((current) => ({ ...createInitialState(), currentRoute: current.currentRoute, icebergs: current.icebergs, gridCells: current.gridCells, ncporStations: current.ncporStations, destination: current.destination, alternativeRoutes: current.alternativeRoutes }));
   }, []);
 
   return {
@@ -245,5 +329,8 @@ export function useSimulation() {
     togglePlaying: useCallback(() => setIsPlaying((playing) => !playing), []),
     changeSpeed: setSpeed,
     reset,
+    selectDestination,
+    chooseAlternative,
+    rejectAlternative,
   };
 }

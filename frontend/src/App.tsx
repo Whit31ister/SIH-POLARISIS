@@ -15,6 +15,9 @@ const App: React.FC = () => {
     togglePlaying,
     changeSpeed,
     reset,
+    selectDestination,
+    chooseAlternative,
+    rejectAlternative,
   } = useSimulation();
   const [isShuttingDown, setIsShuttingDown] = React.useState(false);
 
@@ -33,8 +36,8 @@ const App: React.FC = () => {
   return (
     <main className="app">
       <div className="map-container">
-        <Map simulation={simulation} />
-        <Dashboard simulation={simulation} />
+          <Map simulation={simulation} onDestinationSelect={(point) => { void selectDestination(point); }} />
+        <Dashboard simulation={simulation} onAlternativeSelect={chooseAlternative} onAlternativeReject={rejectAlternative} />
         <ReplayController
           isPlaying={isPlaying}
           speed={speed}
