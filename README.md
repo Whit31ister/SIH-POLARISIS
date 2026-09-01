@@ -1,297 +1,207 @@
-# POLARISIS - Autonomous Maritime Navigation System
+# POLARISIS
 
-A comprehensive system for real-time vessel route optimization in polar regions, featuring AI-driven hazard prediction and dynamic rerouting capabilities.
+POLARISIS is an AI-assisted polar maritime navigation decision-support prototype developed by VisionSeek for SIH. It helps an operator inspect a vessel's environment, compare route hazards, and evaluate a recommended action. It does not autonomously control a vessel; the navigator remains the final decision-maker.
 
-## System Architecture
+## What It Does
 
-- **Frontend:** React + TypeScript + MapLibre GL JS (Vite)
-- **Backend:** FastAPI (Python) with PyTorch ML models
-- **Integration:** C++ CLI client for onboard systems
-- **Algorithms:** A* pathfinding + MLP hazard prediction
+The application combines:
 
-## Project Structure
+- A React, TypeScript, Vite, and MapLibre operator dashboard.
+- A FastAPI backend with A* route planning and a PyTorch hazard predictor.
+- A deterministic browser simulation for vessel movement, iceberg drift, and changing conditions.
+- NCPOR station observations with explicit live, cached, simulated, and error states.
+- A small C++ HTTP client for integration experiments.
 
-```
-SIH-POLARISIS/
-├── frontend/                 # React web dashboard
-│   ├── src/
-│   │   ├── components/      # Map, Dashboard, ReplayController
-│   │   ├── pages/           # Page components
-│   │   ├── types/           # TypeScript interfaces
-│   │   ├── utils/           # API client, helpers
-│   │   └── App.tsx          # Main app component
-│   ├── package.json
-│   ├── tsconfig.json
-│   ├── vite.config.ts
-│   └── index.html
-├── backend/                  # FastAPI server
-│   ├── app/
-│   │   ├── main.py          # FastAPI application
-│   │   ├── astar.py         # A* routing algorithm
-│   │   ├── hazard_model.py  # PyTorch ML models
-│   │   └── __init__.py
-│   ├── data/
-│   │   ├── ship.json        # Vessel state
-│   │   ├── icebergs.json    # Iceberg positions & drift
-│   │   └── ice_grid.json    # GeoJSON grid cells
-│   ├── models/
-│   │   └── hazard_model.pt  # Trained PyTorch model
-│   └── requirements.txt      # Python dependencies
-├── cpp-client/               # C++ integration client
-│   ├── main.cpp             # Client implementation
-│   └── CMakeLists.txt       # Build configuration
-├── docker-compose.yml        # Multi-container deployment
-└── README.md                 # This file
-```
+The normal decision flow is environmental data, hazard analysis, vessel-aware routing, risk assessment, and a recommended `PROCEED`, `REROUTE`, or `HALT` action.
 
-## Quick Start
+## Run Everything
 
-### Prerequisites
+Requirements:
 
-- Node.js 16+ and npm
-- Python 3.9+
-- C++17 compiler (for C++ client)
-- Docker & Docker Compose (optional)
+- Python 3.10 or newer. Python 3.14 works with the current dependency versions.
+- Node.js and npm.
+- A C++17 compiler and CMake only if the optional client is needed.
 
-### 1. Setup Frontend
+From the repository root:
 
 ```bash
-cd frontend
-npm install
-npm run dev
+./run-project.sh
 ```
 
-The frontend will be available at `http://localhost:5173`
+The launcher creates `backend/venv` when necessary, installs missing backend and frontend dependencies, and starts both development servers. It uses port `8000` for FastAPI and `5173` for Vite. Press `Ctrl+C` once to stop both processes.
 
-### 2. Setup Backend
+Open:
+
+- Dashboard: http://localhost:5173
+- API: http://localhost:8000
+- Swagger: http://localhost:8000/docs
+- ReDoc: http://localhost:8000/redoc
+
+To run services separately, use `./run-backend.sh` and `./run-frontend.sh` in separate terminals. The manual commands are:
 
 ```bash
-cd backend
-pip install -r requirements.txt
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+backend/venv/bin/python -m uvicorn app.main:app --app-dir backend --reload
+npm --prefix frontend run dev
 ```
 
-The API will be available at `http://localhost:8000`
+## Repository Layout
 
-### 3. Build C++ Client (Optional)
-
-```bash
-cd cpp-client
-mkdir build && cd build
-cmake ..
-make
-./polarisis-client
+```text
+backend/
+  app/
+    main.py                 FastAPI assembly, middleware, and lifecycle
+    api/                    Thin health, data, route, decision, and simulation routers
+    runtime.py              Shared datasets and model initialization
+    schemas.py              Pydantic API contracts
+    astar.py                A* route planner
+    hazard_model.py         PyTorch model and collision projection
+    ncpor.py                NCPOR adapter, cache, and fallback handling
+  services.py               Shared route distance, ETA, and numeric helpers
+  data/                     Ship, iceberg, grid, and NCPOR fallback data
+frontend/
+  src/
+    App.tsx                 Page composition
+    hooks/useSimulation.ts  Simulation state and playback engine
+    components/             Map, dashboard, and replay controls
+    utils/                  API, navigation, environment, and hazard helpers
+    types/                  Shared TypeScript models
+cpp-client/                 Optional C++ integration client
+run-project.sh              Combined local development launcher
+setup.sh                    Interactive legacy setup menu
 ```
 
-## Features
+`main.py` is intentionally small. API handlers live under `backend/app/api`, calculations live in domain helpers, and startup state is owned by `runtime.py`. `App.tsx` only assembles the page; simulation behavior belongs to `useSimulation.ts`.
 
-### Step 1: Static Mock Data & API Contracts ✅
+## API
 
-- Static JSON files in `backend/data/` directory:
-  - `ship.json`: Current vessel state (position, speed, draft)
-  - `icebergs.json`: Array of iceberg positions with drift vectors
-  - `ice_grid.json`: GeoJSON grid of environmental conditions
+All endpoints are available under the root API URL.
 
-- FastAPI endpoints:
-  - `POST /route` - Calculate optimal route
-  - `POST /decision` - Evaluate risk & recommend action
-  - `GET /data/ship`, `/data/icebergs`, `/data/ice_grid` - Data access
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/health` | Service health |
+| GET | `/data/ship` | Demo vessel state |
+| GET | `/data/icebergs` | Iceberg positions and drift |
+| GET | `/data/ice_grid` | GeoJSON polar grid |
+| GET | `/data/ncpor` | Maitri and Bharati observations |
+| GET | `/data/environment` | Aggregate weather indicators |
+| POST | `/route` | Vessel-aware A* route |
+| POST | `/decision` | Hazard score and recommended action |
+| POST | `/simulate` | Simulation metadata endpoint; playback runs in the browser |
 
-### Step 2: Frontend Map & A* Routing ✅
+Example route request:
 
-- MapLibre GL JS map centered on Drake Passage (-62°S, -59°W)
-- Dynamic map layers:
-  - **Ship Marker** (green circle)
-  - **Hazards** (icebergs as red markers, ice concentration overlays)
-  - **Route Line** (green for safe, red for risky)
-
-- A* algorithm implementation (`backend/app/astar.py`):
-  - Uniform grid network across map area
-  - Cost function: Distance + Ice Penalty + Iceberg Penalty + Depth Penalty + Weather Risk
-  - Returns minimum-cost path as polyline
-
-### Step 3: PyTorch Risk Prediction & Trajectory ✅
-
-- Lightweight MLP model (`backend/app/hazard_model.py`):
-  - **Inputs**: [ice_concentration, ice_drift, wind, wave_height, iceberg_distance, ship_speed, draft]
-  - **Output**: hazard_probability (0.0 to 1.0)
-
-- Iceberg trajectory prediction:
-  - Linear drift projection for +3h, +6h, +12h windows
-  - Collision risk evaluation
-  - Dynamic rerouting triggers
-
-### Step 4: Vessel Profile Support & C++ Client ✅
-
-- Vessel profile integration in route cost calculation
-- Draft-based shallow water penalties
-- Ice capability class scaling
-- C++ integration client with JSON communication
-
-### Step 5: Polish Dashboard UI & Replay Controller ✅
-
-- Dark-mode HUD dashboard with three panels:
-  - **Vessel Info**: Name, Speed, Draft, Ice Rating, Position
-  - **Threat Matrix**: Risk Score (progress bar), Iceberg count, Sea ice, Wave height
-  - **AI Decision**: Alert banner, Confidence, ETA, Risk reduction metric
-
-- Replay controller (bottom-left):
-  - Play/Pause, Speed control (1x-8x), Reset
-  - Real-time simulation of vessel movement and threat evolution
-
-## API Documentation
-
-### POST /route
-
-Request:
 ```json
 {
-  "start": {"lat": -60.0, "lon": -60.0},
-  "destination": {"lat": -64.0, "lon": -63.0},
+  "start": {"lat": -60, "lon": -60},
+  "destination": {"lat": -64, "lon": -63},
   "vessel_speed": 12,
   "vessel_draft": 5.2,
   "ice_capability": "ARC3"
 }
 ```
 
-Response:
-```json
-{
-  "route": [
-    {"lat": -60.0, "lon": -60.0},
-    {"lat": -61.0, "lon": -61.0},
-    ...
-  ],
-  "eta_minutes": 1970,
-  "distance_km": 394.5
-}
-```
+A decision request must include the current vessel position and route:
 
-### POST /decision
-
-Request:
 ```json
 {
   "vessel_speed": 12,
   "vessel_draft": 5.2,
   "ice_capability": "ARC3",
+  "vessel_position": {"lat": -60, "lon": -60},
+  "route": [{"lat": -60, "lon": -60}, {"lat": -64, "lon": -63}],
   "hazards": {
     "ice_concentration": 0.45,
     "wind_speed": 25.5,
     "wave_height": 3.2,
-    "iceberg_distance": 8.5
+    "iceberg_distance": 8.5,
+    "ship_speed": 12,
+    "ship_draft": 5.2,
+    "ice_drift": 15
   }
 }
 ```
 
-Response:
-```json
-{
-  "risk_score": 0.62,
-  "action": "REROUTE",
-  "eta_minutes": 1970,
-  "confidence": 0.87,
-  "recommended_route": [...]
-}
-```
+The response contains `risk_score`, `confidence`, `eta_minutes`, `action`, and `recommended_route`.
 
-## Docker Deployment
+## NCPOR Data Policy
 
-```bash
-docker-compose up -d
-```
+The backend performs one availability check for the NCPOR session. If the external pages are unreachable, it does not repeatedly hammer them during that process.
 
-This will start:
-- Frontend on port 5173
-- Backend API on port 8000
+Station status is explicit:
+
+- `LIVE`: fresh observation fetched from NCPOR.
+- `STALE`: previously fetched observation loaded from the local cache.
+- `SIMULATED`: deterministic demo observation from `backend/data/ncpor_fallback.json`.
+- `ERROR`: no usable observation or fallback record exists.
+
+The fallback keeps the dashboard and simulation usable when NCPOR is blocked by network, VPN, TLS, or regional access conditions. Simulated data is never labeled live.
+
+## Frontend Simulation
+
+The replay controls advance simulated time in five-minute steps. The hook updates vessel position along the current route, iceberg drift, environmental cycles, collision indicators, route progress, ETA, and risk state. Risk decisions are periodically requested from the backend. A `REROUTE` response replaces the active route and retains the previous route for comparison.
+
+The dashboard is intentionally operator-focused. It puts the AI decision first, uses a grayscale interface, and uses color only for meaning: green for lower-risk/proceed states, amber for caution or simulated data, and red for halt/high-risk states.
 
 ## Configuration
 
-### Environment Variables
+Frontend configuration is read from `frontend/.env`:
 
-**Backend** (`.env` in `backend/`):
-```
-API_PORT=8000
-CORS_ORIGINS=["*"]
-LOG_LEVEL=INFO
-```
-
-**Frontend** (`.env` in `frontend/`):
-```
+```env
 VITE_API_URL=http://localhost:8000
 ```
 
-## Model Training
+Use `frontend/.env.example` as a starting point. The Vite development proxy also forwards `/api` requests to port 8000, although the current client uses `VITE_API_URL` directly.
 
-To train a custom hazard model:
+The local launcher uses these optional environment variables:
 
-```python
-import torch
-from app.hazard_model import HazardModel
+- `PYTHON_BIN`: Python executable used when creating a new backend virtual environment. Defaults to `python3`.
+- `API_PORT`: leave unset or set to `8000`; the launcher currently uses port 8000.
 
-model = HazardModel()
-# ... training loop ...
-torch.save(model.state_dict(), "backend/models/hazard_model.pt")
-```
+Do not commit secrets. NCPOR URLs and demo data are public/non-secret configuration.
 
-## Performance Metrics
+## Optional C++ Client
 
-- **A* Pathfinding**: ~50-100ms for Drake Passage region
-- **Risk Prediction**: <5ms per evaluation
-- **Frontend**: 60 FPS at 1920x1080
-- **Memory Usage**: ~2GB backend (with model), ~500MB frontend
+Install libcurl, jsoncpp, CMake, and a C++17 compiler, then run:
 
-## Simulation Parameters
-
-- **Grid Resolution**: 0.5° x 0.5° cells
-- **Time Step**: 300 seconds (5 minutes)
-- **Simulation Speed**: 1x-8x configurable multiplier
-- **Update Frequency**: Every 30 minutes (simulated)
-
-## Testing
-
-### Unit Tests (Backend)
 ```bash
-pytest backend/tests/
+./build-cpp-client.sh
 ```
 
-### Integration Tests
+The client sends a decision request to the local API. It is an integration demonstration, not a certified onboard control system.
+
+## Docker
+
+Docker configuration is available for environments that already provide Docker Compose:
+
 ```bash
-pytest backend/tests/integration/
+docker compose up --build
 ```
 
-## Known Limitations
+The local launcher is preferred for development because it uses the existing Python virtual environment and current workspace files directly.
 
-1. Iceberg drift uses linear projection (doesn't account for Coriolis effect)
-2. Sea ice model simplified (single concentration value)
-3. Weather data is synthetic for demo purposes
-4. C++ client uses JSON over HTTP (not optimized for low-latency)
+## Verification
 
-## Future Enhancements
+Useful checks from the repository root:
 
-- Real-time weather data integration (NOAA API)
-- Machine learning model fine-tuning with real incident data
-- WebSocket support for live updates
-- 3D visualization of subsurface hazards
-- Multi-vessel coordination
-- Satellite imagery integration
+```bash
+npm --prefix frontend install
+npm --prefix frontend run build
+backend/venv/bin/python -m compileall -q backend/app
+curl http://localhost:8000/health
+```
 
-## Team & Attribution
+The production frontend build currently emits a non-blocking bundle-size warning because MapLibre is included in the main chunk. ESLint is not configured in the repository, so `npm run lint` is not currently a valid check.
 
-**POLARISIS Project** - Autonomous Navigation for Polar Regions
+## Limitations
+
+- A* operates on the small demo GeoJSON grid and is not a complete nautical charting system.
+- The hazard MLP is a lightweight prototype and is not trained or validated for operational navigation.
+- Iceberg projection is linear over short time windows.
+- Weather and NCPOR fallback observations are demonstration data when live observations are unavailable.
+- MapLibre depends on its configured public demo style and network access.
+- No component or backend automated test suite is currently included.
+- This software must not be used as the sole basis for real vessel navigation.
 
 ## License
 
-See LICENSE file
-
-## Support
-
-For issues, feature requests, or questions:
-- Create an issue in the repository
-- Contact: polarisis@example.com
-
----
-
-**Last Updated**: August 2026  
-**Status**: Beta  
-**Version**: 0.1.0
+See [LICENSE](LICENSE).
